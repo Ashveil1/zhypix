@@ -1,4 +1,4 @@
-# Zhypix Video Demos & Showcase
+# hypix Video Demos & Showcase
 
 Welcome to the Zhypix Video Demos and Showcase page. Below you can find video walkthroughs and demonstrations of Zhypix in action on Android.
 
