@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="100%" height="100%">
+  <!-- Isometric Black Cube with Crisp White Edges (Pure Black & White, No Border or Glow) -->
+  <g transform="translate(100, 100) scale(2.6)">
+    <!-- Solid Black Cube Base -->
+    <path d="M 0,-28.8 L 26.16,-14.4 L 26.16,14.4 L 0,28.8 L -26.16,14.4 L -26.16,-14.4 Z"
+          fill="#000000"/>
+
+    <!-- Outer Hexagon White Wireframe -->
+    <path d="M 0,-28.8 L 26.16,-14.4 L 26.16,14.4 L 0,28.8 L -26.16,14.4 L -26.16,-14.4 Z"
+          fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <!-- Three Internal White Edges Meeting at Center -->
+    <path d="M 0,0 L -26.16,-14.4" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 0,0 L 26.16,-14.4" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M 0,0 L 0,28.8" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

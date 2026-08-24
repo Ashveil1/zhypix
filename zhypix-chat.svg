@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 60" width="100%" height="100%">
+  <defs>
+    <style>
+      .bg {
+        fill: #000000;
+      }
+      
+      .text-base {
+        font-family: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', 'Courier New', monospace;
+        font-size: 14.5px;
+        font-weight: 500;
+        fill: #FAFAFA;
+        dominant-baseline: middle;
+      }
+
+      .prompt-symbol {
+        fill: #888888;
+        font-weight: 700;
+      }
+
+      .cursor {
+        fill: #FFFFFF;
+        animation: blink 0.8s infinite;
+      }
+
+      @keyframes blink {
+        0%, 49% { opacity: 1; }
+        50%, 100% { opacity: 0; }
+      }
+
+      /* Animated Clip Rectangles for Typewriter Effect */
+      #r1 { animation: typeClip1 21s infinite; }
+      #r2 { animation: typeClip2 21s infinite; }
+      #r3 { animation: typeClip3 21s infinite; }
+      #r4 { animation: typeClip4 21s infinite; }
+      #r5 { animation: typeClip5 21s infinite; }
+      #r6 { animation: typeClip6 21s infinite; }
+
+      @keyframes typeClip1 {
+        0% { width: 0px; opacity: 1; animation-timing-function: steps(27, end); }
+        6.5% { width: 260px; opacity: 1; animation-timing-function: linear; }
+        13.5% { width: 260px; opacity: 1; animation-timing-function: steps(27, end); }
+        15.5% { width: 0px; opacity: 1; }
+        16%, 100% { width: 0px; opacity: 0; }
+      }
+
+      @keyframes typeClip2 {
+        0%, 16% { width: 0px; opacity: 0; }
+        16.5% { width: 0px; opacity: 1; animation-timing-function: steps(45, end); }
+        23.2% { width: 420px; opacity: 1; animation-timing-function: linear; }
+        30.2% { width: 420px; opacity: 1; animation-timing-function: steps(45, end); }
+        32.2% { width: 0px; opacity: 1; }
+        32.7%, 100% { width: 0px; opacity: 0; }
+      }
+
+      @keyframes typeClip3 {
+        0%, 32.7% { width: 0px; opacity: 0; }
+        33.2% { width: 0px; opacity: 1; animation-timing-function: steps(43, end); }
+        39.8% { width: 400px; opacity: 1; animation-timing-function: linear; }
+        46.8% { width: 400px; opacity: 1; animation-timing-function: steps(43, end); }
+        48.8% { width: 0px; opacity: 1; }
+        49.3%, 100% { width: 0px; opacity: 0; }
+      }
+
+      @keyframes typeClip4 {
+        0%, 49.3% { width: 0px; opacity: 0; }
+        49.8% { width: 0px; opacity: 1; animation-timing-function: steps(40, end); }
+        56.5% { width: 375px; opacity: 1; animation-timing-function: linear; }
+        63.5% { width: 375px; opacity: 1; animation-timing-function: steps(40, end); }
+        65.5% { width: 0px; opacity: 1; }
+        66.0%, 100% { width: 0px; opacity: 0; }
+      }
+
+      @keyframes typeClip5 {
+        0%, 66.0% { width: 0px; opacity: 0; }
+        66.5% { width: 0px; opacity: 1; animation-timing-function: steps(46, end); }
+        73.2% { width: 430px; opacity: 1; animation-timing-function: linear; }
+        80.2% { width: 430px; opacity: 1; animation-timing-function: steps(46, end); }
+        82.2% { width: 0px; opacity: 1; }
+        82.7%, 100% { width: 0px; opacity: 0; }
+      }
+
+      @keyframes typeClip6 {
+        0%, 82.7% { width: 0px; opacity: 0; }
+        83.2% { width: 0px; opacity: 1; animation-timing-function: steps(39, end); }
+        89.8% { width: 365px; opacity: 1; animation-timing-function: linear; }
+        96.8% { width: 365px; opacity: 1; animation-timing-function: steps(39, end); }
+        98.8% { width: 0px; opacity: 1; }
+        99.3%, 100% { width: 0px; opacity: 0; }
+      }
+    </style>
+
+    <clipPath id="cp1"><rect id="r1" x="170" y="0" width="0" height="60" /></clipPath>
+    <clipPath id="cp2"><rect id="r2" x="90" y="0" width="0" height="60" /></clipPath>
+    <clipPath id="cp3"><rect id="r3" x="100" y="0" width="0" height="60" /></clipPath>
+    <clipPath id="cp4"><rect id="r4" x="112" y="0" width="0" height="60" /></clipPath>
+    <clipPath id="cp5"><rect id="r5" x="85" y="0" width="0" height="60" /></clipPath>
+    <clipPath id="cp6"><rect id="r6" x="118" y="0" width="0" height="60" /></clipPath>
+  </defs>
+
+  <!-- Background container -->
+  <rect class="bg" width="600" height="60" rx="8" />
+
+  <!-- Clipped Monospace Typewriter Phrases -->
+  <g class="text-base">
+    <text x="170" y="30" clip-path="url(#cp1)"><tspan class="prompt-symbol">&gt; </tspan>How can I help you today? <tspan class="cursor">_</tspan></text>
+    <text x="90" y="30" clip-path="url(#cp2)"><tspan class="prompt-symbol">&gt; </tspan>Run terminal commands &amp; execute scripts... <tspan class="cursor">_</tspan></text>
+    <text x="100" y="30" clip-path="url(#cp3)"><tspan class="prompt-symbol">&gt; </tspan>Automate device navigation &amp; app tasks... <tspan class="cursor">_</tspan></text>
+    <text x="112" y="30" clip-path="url(#cp4)"><tspan class="prompt-symbol">&gt; </tspan>Inspect screen content &amp; analyze UI... <tspan class="cursor">_</tspan></text>
+    <text x="85" y="30" clip-path="url(#cp5)"><tspan class="prompt-symbol">&gt; </tspan>Generate code, build tools, &amp; solve tasks... <tspan class="cursor">_</tspan></text>
+    <text x="118" y="30" clip-path="url(#cp6)"><tspan class="prompt-symbol">&gt; </tspan>Type any prompt or tap to try it out! <tspan class="cursor">_</tspan></text>
+  </g>
+</svg>

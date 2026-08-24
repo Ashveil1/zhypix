@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Zhypix</string>
+    <string name="accessibility_service_description">Zhypix needs this permission to read the screen and perform actions on your behalf to implement computer use features.</string>
+</resources>

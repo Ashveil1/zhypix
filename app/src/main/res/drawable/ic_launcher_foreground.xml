@@ -1,0 +1,52 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Top face translucency -->
+    <path
+        android:pathData="M 54,54 L 32.16,41.4 L 54,28.8 L 76.16,41.4 Z"
+        android:fillColor="#15FFFFFF" />
+        
+    <!-- Left face translucency -->
+    <path
+        android:pathData="M 54,54 L 32.16,41.4 L 32.16,66.6 L 54,79.2 Z"
+        android:fillColor="#09FFFFFF" />
+        
+    <!-- Right face translucency -->
+    <path
+        android:pathData="M 54,54 L 76.16,41.4 L 76.16,66.6 L 54,79.2 Z"
+        android:fillColor="#0DFFFFFF" />
+
+    <!-- Outer Hexagon Wireframe -->
+    <path
+        android:pathData="M 54,28.8 L 76.16,41.4 L 76.16,66.6 L 54,79.2 L 32.16,66.6 L 32.16,41.4 Z"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+        
+    <!-- Three internal edges meeting at center -->
+    <path
+        android:pathData="M 54,54 L 32.16,41.4"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+        
+    <path
+        android:pathData="M 54,54 L 76.16,41.4"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+        
+    <path
+        android:pathData="M 54,54 L 54,79.2"
+        android:strokeWidth="3.5"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
