@@ -2876,10 +2876,16 @@ object LinuxTerminalSimulator {
     }
 
     private fun applyStandardPRootEnvironment(builder: ProcessBuilder, context: Context, prootTmpDir: File) {
+        val env = buildStandardPRootEnvironment(context, prootTmpDir)
+        builder.environment().putAll(env)
+    }
+
+    fun buildStandardPRootEnvironment(context: Context, prootTmpDir: File): MutableMap<String, String> {
+        val env = mutableMapOf<String, String>()
         val libDir = File(context.filesDir, "lib").absolutePath
         val nativeLibDir = context.applicationInfo.nativeLibraryDir
-        builder.environment()["LD_LIBRARY_PATH"] = "$libDir:$nativeLibDir"
-        builder.environment()["PATH"] = "$libDir:$nativeLibDir:/system/bin:/system/xbin"
+        env["LD_LIBRARY_PATH"] = "$libDir:$nativeLibDir"
+        env["PATH"] = "$libDir:$nativeLibDir:/system/bin:/system/xbin"
 
         val loaderCandidate1 = File(context.filesDir, "lib/libproot-loader.so")
         val loaderCandidate2 = File(context.applicationInfo.nativeLibraryDir, "libproot-loader.so")
@@ -2889,7 +2895,7 @@ object LinuxTerminalSimulator {
                 loaderFile.setExecutable(true, false)
                 loaderFile.setReadable(true, false)
             } catch (e: Exception) {}
-            builder.environment()["PROOT_LOADER"] = loaderFile.absolutePath
+            env["PROOT_LOADER"] = loaderFile.absolutePath
         }
 
         val loader32Candidate1 = File(context.filesDir, "lib/libproot-loader32.so")
@@ -2900,23 +2906,24 @@ object LinuxTerminalSimulator {
                 loader32File.setExecutable(true, false)
                 loader32File.setReadable(true, false)
             } catch (e: Exception) {}
-            builder.environment()["PROOT_LOADER_32"] = loader32File.absolutePath
+            env["PROOT_LOADER_32"] = loader32File.absolutePath
         }
 
-        builder.environment()["PROOT_TMP_DIR"] = prootTmpDir.absolutePath
-        builder.environment()["PROOT_TMPDIR"] = prootTmpDir.absolutePath
-        builder.environment()["TMPDIR"] = prootTmpDir.absolutePath
-        builder.environment()["TEMP"] = prootTmpDir.absolutePath
-        builder.environment()["TMP"] = prootTmpDir.absolutePath
-        builder.environment()["PROOT_VERBOSE"] = "0"
-        builder.environment()["PROOT_NO_SECCOMP"] = "1"
-        builder.environment()["PROOT_NO_SHMEM_WARNING"] = "1"
-        builder.environment()["PROOT_NO_ALIGNMENT_CHECK"] = "1"
-        builder.environment()["PROOT_KILL_ON_EXIT"] = "1"
-        builder.environment()["HOME"] = "/root"
-        builder.environment()["USER"] = "root"
-        builder.environment()["SHELL"] = "/bin/bash"
-        builder.environment()["TERM"] = "xterm-256color"
+        env["PROOT_TMP_DIR"] = prootTmpDir.absolutePath
+        env["PROOT_TMPDIR"] = prootTmpDir.absolutePath
+        env["TMPDIR"] = prootTmpDir.absolutePath
+        env["TEMP"] = prootTmpDir.absolutePath
+        env["TMP"] = prootTmpDir.absolutePath
+        env["PROOT_VERBOSE"] = "0"
+        env["PROOT_NO_SECCOMP"] = "1"
+        env["PROOT_NO_SHMEM_WARNING"] = "1"
+        env["PROOT_NO_ALIGNMENT_CHECK"] = "1"
+        env["PROOT_KILL_ON_EXIT"] = "1"
+        env["HOME"] = "/root"
+        env["USER"] = "root"
+        env["SHELL"] = "/bin/bash"
+        env["TERM"] = "xterm-256color"
+        return env
     }
 
     private fun appendStandardPRootBindings(prootCmdList: MutableList<String>, context: Context, distroDir: File) {
@@ -3700,5 +3707,103 @@ CapAmb: 0000000000000000"
         } catch (e: Exception) {
             android.util.Log.e("Zhypix", "Failed to install custom wrapper scripts", e)
         }
+    }
+
+    /**
+     * Launch spec for a real PTY-backed interactive session (Termux TerminalView integration).
+     * Reuses the same proot invocation contract as executeCommand so guest behavior matches.
+     */
+    data class PtyLaunchSpec(
+        val executablePath: String,
+        val cwd: String,
+        val args: List<String>,
+        val env: List<String>,
+        val distroAlias: String?
+    )
+
+    fun resolveBusyboxFile(): File? {
+        val context = applicationContext ?: return null
+        val c1 = File(context.filesDir, "lib/libbusybox.so")
+        val c2 = File(context.applicationInfo.nativeLibraryDir, "libbusybox.so")
+        return when {
+            c1.exists() && isValidElf(c1) -> c1
+            c2.exists() && isValidElf(c2) -> c2
+            else -> null
+        }
+    }
+
+    fun buildPtyLaunchSpec(distroAlias: String?, cwdOverride: String? = null): PtyLaunchSpec? {
+        val context = applicationContext ?: return null
+
+        if (distroAlias == null) {
+            val busybox = resolveBusyboxFile() ?: return null
+            try {
+                busybox.setExecutable(true, false)
+                busybox.setReadable(true, false)
+            } catch (_: Exception) {}
+            val env = mutableMapOf(
+                "PATH" to "/system/bin:/system/xbin",
+                "HOME" to context.filesDir.absolutePath,
+                "USER" to "u0_a" + android.os.Process.myUid() % 10000,
+                "SHELL" to busybox.absolutePath,
+                "TERM" to "xterm-256color",
+                "LANG" to "C.UTF-8",
+                "LC_ALL" to "C.UTF-8",
+                "TMPDIR" to context.cacheDir.absolutePath
+            )
+            return PtyLaunchSpec(
+                executablePath = busybox.absolutePath,
+                cwd = globalRealDirectory.takeIf { it.isDirectory }?.absolutePath ?: context.filesDir.absolutePath,
+                args = listOf("sh"),
+                env = env.map { (k, v) -> "$k=$v" },
+                distroAlias = null
+            )
+        }
+
+        val distroDir = File(File(context.filesDir, "proot-distros"), distroAlias)
+        if (!distroDir.exists()) return null
+        val proot = prootPath?.takeIf { File(it).exists() && isValidElf(File(it)) } ?: return null
+
+        var guestDir = cwdOverride ?: _guestDirectory.value.ifBlank { "/root" }
+        if (!File(distroDir, guestDir.removePrefix("/")).exists()) {
+            guestDir = "/root"
+        }
+
+        val shell = listOf("bin/bash", "bin/sh", "bin/ash")
+            .map { File(distroDir, it) }
+            .firstOrNull { it.exists() }
+            ?.let { "/" + it.absolutePath.removePrefix(distroDir.absolutePath).trimStart('/') }
+            ?: "/bin/sh"
+
+        val cmdList = mutableListOf(
+            proot,
+            "-r", distroDir.absolutePath,
+            "-0",
+            "--link2symlink",
+            "-w", guestDir
+        )
+        appendStandardPRootBindings(cmdList, context, distroDir)
+
+        // exec replaces sh so bash is the direct child: clean job-control/signal semantics.
+        cmdList.addAll(listOf(
+            "/bin/sh", "-c",
+            "unset LD_LIBRARY_PATH; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH HOME=/root USER=root SHELL=/bin/bash TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp TEMP=/tmp TMP=/tmp DEBIAN_FRONTEND=noninteractive; exec $shell"
+        ))
+
+        val prootTmpDir = File(File(context.cacheDir, "proot_tmp"), "pty_" + java.util.UUID.randomUUID().toString()).apply {
+            mkdirs()
+            setWritable(true, false)
+            setReadable(true, false)
+            setExecutable(true, false)
+        }
+        val envMap = buildStandardPRootEnvironment(context, prootTmpDir)
+
+        return PtyLaunchSpec(
+            executablePath = proot,
+            cwd = context.filesDir.absolutePath,
+            args = cmdList.subList(1, cmdList.size),
+            env = envMap.map { (k, v) -> "$k=$v" },
+            distroAlias = distroAlias
+        )
     }
 }

@@ -25,3 +25,5 @@ dependencyResolutionManagement {
 rootProject.name = "Zhypix"
 
 include(":app")
+include(":terminal-emulator")
+include(":terminal-view")

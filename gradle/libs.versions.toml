@@ -1,5 +1,6 @@
 [versions]
 agp = "8.8.0"
+androidxAnnotation = "1.9.1"
 coreKtx = "1.15.0"
 junit = "4.13.2"
 junitVersion = "1.3.0"
@@ -41,6 +42,7 @@ secretsGradlePlugin = "2.0.1"
 commonsCompress = "1.26.1"
 
 [libraries]
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version.ref = "androidxAnnotation" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
@@ -93,6 +95,7 @@ xz = { group = "org.tukaani", name = "xz", version = "1.10" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
