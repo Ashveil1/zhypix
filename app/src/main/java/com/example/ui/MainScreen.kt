@@ -109,8 +109,9 @@ fun MainScreen(viewModel: AgentViewModel) {
     val agentState by viewModel.agentState.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val requestedSettingsSubScreen by viewModel.requestedSettingsSubScreen.collectAsState()
+    val userPreferences by viewModel.userPreferences.collectAsState()
     val context = LocalContext.current
-    
+
     LaunchedEffect(requestedSettingsSubScreen) {
         if (requestedSettingsSubScreen != null) {
             showSettingsModal = true

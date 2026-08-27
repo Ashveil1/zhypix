@@ -157,6 +157,17 @@ class FloatingAgentService : Service() {
         startAsForeground()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
+        // Pre-fetch models on floating service start if empty
+        val viewModel = AgentViewModel.instance
+        if (viewModel != null && viewModel.availableModels.value.isEmpty()) {
+            val provider = viewModel.provider.value
+            val baseUrl = viewModel.baseUrl.value
+            val apiKey = viewModel.apiKey.value
+            if (apiKey.isNotBlank()) {
+                viewModel.fetchModels(provider, baseUrl, apiKey)
+            }
+        }
+
         // 1. Text Notification Overlay
         val layoutParams = WindowManager.LayoutParams(
             480, // Set optimal width to handle wrapped text smoothly (~240dp)
@@ -1073,6 +1084,16 @@ class FloatingAgentService : Service() {
         modelBtn.addView(modelContentRow)
 
         modelBtn.setOnClickListener {
+            val viewModel = AgentViewModel.instance
+            if (viewModel != null && viewModel.availableModels.value.isEmpty()) {
+                val provider = viewModel.provider.value
+                val baseUrl = viewModel.baseUrl.value
+                val apiKey = viewModel.apiKey.value
+                if (apiKey.isNotBlank()) {
+                    viewModel.fetchModels(provider, baseUrl, apiKey)
+                }
+            }
+
             val popup = android.widget.PopupMenu(this@FloatingAgentService, modelBtn)
             val available = AgentViewModel.instance?.availableModels?.value ?: emptyList()
             val current = AgentViewModel.instance?.modelName?.value ?: ""
@@ -1415,6 +1436,14 @@ class FloatingAgentService : Service() {
         scope.launch {
             AgentViewModel.instance?.messages?.collect { messages ->
                 updateChatHistory(messages)
+            }
+        }
+
+        scope.launch {
+            AgentViewModel.instance?.modelName?.collect { activeModel ->
+                if (::modelTv.isInitialized) {
+                    modelTv.text = getModelFullName(activeModel)
+                }
             }
         }
 
@@ -1780,17 +1809,25 @@ class FloatingAgentService : Service() {
     }
 
     private fun getModelFullName(modelId: String): String {
-        return when (modelId) {
+        if (modelId.isBlank()) {
+            val provider = AgentViewModel.instance?.provider?.value ?: ""
+            return if (provider.isNotBlank()) "Default ($provider)" else "Select Model"
+        }
+        
+        val cleanId = modelId.removePrefix("models/")
+        return when (cleanId) {
             "gemini-2.5-flash" -> "Gemini 2.5 Flash"
             "gemini-2.5-pro" -> "Gemini 2.5 Pro"
             "gemini-1.5-pro" -> "Gemini 1.5 Pro"
             "gemini-1.5-flash" -> "Gemini 1.5 Flash"
             "gpt-4o" -> "GPT-4o"
+            "gpt-4o-mini" -> "GPT-4o Mini"
             "gpt-3.5-turbo" -> "GPT-3.5 Turbo"
-            else -> {
-                if (modelId.isBlank()) "Gemini 2.5 Flash"
-                else modelId.removePrefix("models/")
-            }
+            "o1-mini" -> "o1-mini"
+            "claude-3-5-sonnet-20241022" -> "Claude 3.5 Sonnet"
+            "claude-3-haiku-20240307" -> "Claude 3 Haiku"
+            "claude-3-opus-20240229" -> "Claude 3 Opus"
+            else -> cleanId
         }
     }
 

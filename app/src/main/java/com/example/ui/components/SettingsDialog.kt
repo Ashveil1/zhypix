@@ -1315,6 +1315,7 @@ fun SettingsScreen(
     var isMicrophoneGranted by remember { mutableStateOf(false) }
     var isNotificationsGranted by remember { mutableStateOf(false) }
     var isStorageGranted by remember { mutableStateOf(false) }
+    var isDefaultAssistant by remember { mutableStateOf(false) }
     
     var colorMode by remember { mutableStateOf("System") }
     var fontStyle by remember { mutableStateOf("Default") }
@@ -1328,6 +1329,7 @@ fun SettingsScreen(
         isMicrophoneGranted = PermissionUtils.isMicrophoneGranted(context)
         isNotificationsGranted = PermissionUtils.isNotificationsGranted(context)
         isStorageGranted = PermissionUtils.isStorageGranted(context)
+        isDefaultAssistant = PermissionUtils.isDefaultAssistant(context)
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1358,8 +1360,8 @@ fun SettingsScreen(
     val mcpServers by viewModel.mcpServers.collectAsState()
     var showAddMcpDialog by remember { mutableStateOf(false) }
 
-    val activeCount = listOf(isAccessibilityEnabled, isOverlayEnabled, isBatteryOptimizationIgnored, isMicrophoneGranted, isNotificationsGranted).count { it }
-    val totalCount = 5
+    val activeCount = listOf(isAccessibilityEnabled, isOverlayEnabled, isBatteryOptimizationIgnored, isMicrophoneGranted, isNotificationsGranted, isDefaultAssistant).count { it }
+    val totalCount = 6
     val percent = (activeCount.toFloat() / totalCount.toFloat() * 100).toInt()
 
     var activeSubScreen by remember(initialSubScreen) { mutableStateOf(initialSubScreen) }
@@ -1669,6 +1671,18 @@ fun SettingsScreen(
                                             context.startActivity(intent)
                                         } catch (ex: Exception) {}
                                     }
+                                }
+                            )
+                            
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.06f), modifier = Modifier.padding(start = 16.dp))
+
+                            // Default Assistant App
+                            PermissionRow(
+                                title = "Default Digital Assistant App",
+                                description = "Allows launching the AI Assistant floating panel immediately by long-pressing home button or swiping.",
+                                isGranted = isDefaultAssistant,
+                                onAction = {
+                                    PermissionUtils.requestDefaultAssistant(context)
                                 }
                             )
                             

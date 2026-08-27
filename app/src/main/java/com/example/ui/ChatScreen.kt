@@ -7,7 +7,8 @@ import kotlin.math.cos
 import kotlin.math.PI
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
@@ -180,14 +181,18 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
                 .fillMaxSize()
                 .padding(horizontal = if (maxWidth > 650.dp) 24.dp else 0.dp)
         ) {
-            if (!isOverlayEnabled && !isOverlayDismissed) {
+            val userPreferences by viewModel.userPreferences.collectAsState()
+            val isConfigured = viewModel.isProviderAndModelConfigured()
+            var isBannerDismissed by remember { mutableStateOf(false) }
+
+            if (!isConfigured && !isBannerDismissed) {
                 Surface(
                     color = SurfaceDark,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
+                    border = BorderStroke(1.dp, CyanAccent.copy(alpha = 0.5f)),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -199,22 +204,22 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = "Edit",
-                                tint = Color.White,
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings Required",
+                                tint = CyanAccent,
                                 modifier = Modifier
                                     .padding(end = 12.dp)
                                     .size(22.dp)
                             )
                             Column {
                                 Text(
-                                    text = "Display Over Other Apps",
+                                    text = "AI Configuration Needed",
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp
                                 )
                                 Text(
-                                    text = "Please grant this permission to allow the AI to overlay touch visualizers and action indicators.",
+                                    text = "Please set up your AI Provider, Model, and API Key to start chatting.",
                                     color = TextPrimary.copy(alpha = 0.85f),
                                     fontSize = 11.sp
                                 )
@@ -222,32 +227,20 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Button(
-                                onClick = {
-                                    try {
-                                        val intent = Intent(
-                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                            Uri.parse("package:${context.packageName}")
-                                        )
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        try {
-                                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-                                            context.startActivity(intent)
-                                        } catch (ex: Exception) {
-                                            android.util.Log.e("AI Assistant", "Could not launch overlay settings", ex)
-                                        }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                                onClick = { viewModel.openSettings() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = CyanAccent,
+                                    contentColor = Color.Black
+                                ),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                 modifier = Modifier.height(32.dp)
                             ) {
-                                Text("Settings", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Setting Now", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             IconButton(
-                                onClick = { isOverlayDismissed = true },
+                                onClick = { isBannerDismissed = true },
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Icon(

@@ -44,6 +44,40 @@ object PermissionUtils {
         }
     }
 
+    fun isDefaultAssistant(context: Context): Boolean {
+        return try {
+            val assistant = Settings.Secure.getString(context.contentResolver, "assistant") ?: ""
+            val voiceInteraction = Settings.Secure.getString(context.contentResolver, "voice_interaction_service") ?: ""
+            val pkg = context.packageName
+            assistant.contains(pkg) || voiceInteraction.contains(pkg)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun requestDefaultAssistant(context: Context) {
+        try {
+            val intent = android.content.Intent(Settings.ACTION_VOICE_INPUT_SETTINGS).apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = android.content.Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).apply {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (ex: Exception) {
+                try {
+                    val intent = android.content.Intent(Settings.ACTION_SETTINGS).apply {
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     fun isStorageGranted(context: Context): Boolean {
         return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
             android.os.Environment.isExternalStorageManager()
