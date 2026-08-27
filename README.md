@@ -96,6 +96,24 @@ Zhypix is an all-in-one autonomous companion designed to make your Android devic
 ### Pre-built Package
 Download the latest APK binary from the [Releases](https://github.com/ashveil1/zhypix/releases) section.
 
+> [!IMPORTANT]
+> **Google Play Protect Warning during Sideload Installation:**  
+> Since Zhypix requires powerful system privileges (such as **Accessibility Service** for automating gestures and **System Alert Window** for the floating overlay) and is installed as a `.apk` file from outside the Google Play Store, **Google Play Protect** may block the installation by default.
+>
+> **THAI (วิธีแก้ไขเมื่อติดตั้งไม่ได้ / โดนบล็อกโดย Play Protect):**
+> 1. เปิดแอป **Google Play Store** ในมือถือของคุณ
+> 2. แตะที่ **รูปโปรไฟล์** ของคุณที่มุมขวาบน -> เลือกเมนู **Play Protect**
+> 3. แตะที่ไอคอน **ฟันเฟือง (Settings)** ที่บริเวณมุมขวาบน
+> 4. ปิดการใช้งานหัวข้อ **"สแกนแอปด้วย Play Protect" (Scan apps with Play Protect)**
+> 5. กลับไปกดติดตั้งไฟล์ APK ของ Zhypix อีกครั้ง จะสามารถติดตั้งผ่านได้อย่างปลอดภัยและใช้งานได้ทันทีครับ!
+>
+> **ENGLISH (How to bypass Play Protect block):**
+> 1. Open the **Google Play Store** app on your Android device.
+> 2. Tap your **profile icon** in the top-right corner -> select **Play Protect**.
+> 3. Tap the **Settings (gear icon)** in the top-right corner.
+> 4. Turn **OFF** the option **"Scan apps with Play Protect"**.
+> 5. Go back and reinstall the Zhypix APK. It will install successfully without any blocks!
+
 ### Build From Source
 To compile and assemble the APK manually:
 
