@@ -248,6 +248,7 @@ if __name__ == "__main__":
 | **8. `locale` warnings / Perl-Python non-ASCII crash** | ค่าตัวแปรภาษาและ Encoding ไม่ได้ถูกกำหนดใน Shell | กำหนด `export LANG=C.UTF-8` และ `LC_ALL=C.UTF-8` ใน Environment ของ PRoot ทุกรอบคำสั่ง |
 | **9. `exec(.../files/lib/libbusybox.so) permission denied`** | SELinux W^X บล็อกการ execute ไบนารีจาก app internal storage | แยกโหมด Host Shell ไปใช้ `/system/bin/sh` และใช้ Pure JVM Extractor สกัด Rootfs แทนการเรียก Busybox ภายนอก |
 | **10. `cannot locate symbol "lbb_main"`** | ไบนารี Busybox ของ Termux เป็น Launcher Stub ที่ต้องการ dynamic library คู่กัน | สกัด Rootfs และ Symlink ในระดับ Java/JVM (`Os.symlink`) โดยตรง ไม่ต้องพึ่งพา Busybox binary |
+| **11. `Host PTY exec permission denied` — `buildPtyLaunchSpec` เลือก `filesDir/lib/libbusybox.so` ก่อน `/system/bin/sh`** | `buildPtyLaunchSpec()` โหมด Host (`distroAlias == null`) เรียก `resolveBusyboxFile()` ซึ่ง prefer `filesDir/lib/libbusybox.so` (4.3K stub) ก่อน `/system/bin/sh`; บน Android 10+ (API 29+) `SELinux W^X` บล็อกการ `exec` จาก app internal storage ทันที แม้ ELF จะ valid | แก้ `utils/LinuxTerminalSimulator.kt:3435`/`3502` ให้ Host Shell ใช้ `/system/bin/sh` ตายตัวเสมอ ไม่พึ่ง busybox จาก `filesDir` (ตาม `7.1` Pure JVM) — commit `98a69a0` (27 ส.ค. 2026) |
 
 ---
 
@@ -366,6 +367,32 @@ val prootArgs = mutableListOf(
    - ใน `buildPtyLaunchSpec()` ต้องส่ง `args = cmdList` โดยคงองค์ประกอบแรก (`proot`) ไว้ เพื่อให้ JNI Native Layer (`termux.c`) เติม `argv[0]` ตรงตามมาตรฐาน C Exec-family
 5. **Atomic Relative Symlink Creation & Safe Extraction:**
    - คำนวณ Relative Path จากตำแหน่งโฟลเดอร์แม่ของ Symlink ย้อนกลับไปไฟล์ปลายทาง และสร้าง Symlink ชั่วคราว (`.symlink_tmp_*`) ก่อนสั่ง Atomic Rename เพื่อป้องกันการสูญหายของ Symlink ระหว่างกระบวนการสแกนแก้ไข
+
+---
+
+### 7.6 ปัญหา Host PTY `exec permission denied` จากการเรียก `busybox` ใน `filesDir` (SELinux W^X) — อัปเดต 27 ส.ค. 2026
+
+**อาการ:** เปิด Terminal โหมด Host (`distroAlias == null`) แล้ว `PtyLaunchSpec` ล้มเหลวด้วย `exec permission denied` หรือ `cannot execute .../files/lib/libbusybox.so` แม้ `restore_libs.py` จะฟื้น `ELF` ถูกต้องและ `file` รายงาน `valid` แล้ว
+
+**สาเหตุ (Root Cause):**
+- `utils/LinuxTerminalSimulator.kt:3435` `resolveBusyboxFile()` เดิม `return when { filesLib.exists() && isValidElf(filesLib) -> filesLib; nativeFile.exists() && isValidElf(nativeFile) && length >50000 -> nativeFile }` — เลือก `filesDir/lib/libbusybox.so` (4.3K stub) ก่อนเสมอ
+- `buildPtyLaunchSpec:3502` เดิม `val executable = busybox?.absolutePath ?: "/system/bin/sh"` — ถ้าเจอ busybox จะ `exec` จาก `filesDir` ทันที
+- บน Android 10+ ระบบ `SELinux W^X (Write XOR Execute)` ห้าม `exec` ไบนารีที่อยู่ใน app internal storage (`/data/data/com.zhypix.../files/`) แม้จะ `chmod +x` แล้วก็ตาม → `permission denied` ทันที
+- ส่วน `executeCommand()` โหมด Host (`2795`) ใช้ `/system/bin/sh` ถูกต้องอยู่แล้ว จึงไม่เจอปัญหานี้ — เฉพาะ `PTY` host mode ที่ผิด
+
+**วิธีแก้ (Fix — commit `98a69a0`):**
+```kotlin
+// ก่อน (บั๊ก):
+val busybox = resolveBusyboxFile()
+val executable = busybox?.absolutePath ?: if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
+PtyLaunchSpec(executablePath = executable, args = if (busybox != null) listOf("sh") else listOf(executable))
+
+// หลัง (ถูกต้องตาม 7.1):
+val executable = if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh" // Host ต้องใช้ /system/bin/sh ตายตัว
+PtyLaunchSpec(executablePath = executable, args = listOf(executable))
+```
+- ไม่พึ่ง `busybox` จาก `filesDir` อีกต่อไป สอดคล้องกับ `7.1` ที่ว่า Host Shell ต้องใช้ `/system/bin/sh` และ `7.2-7.3` ที่ใช้ Pure JVM extractor
+- `resolveBusyboxFile()` ยังคงไว้เพื่อ backward-compat แต่ไม่มีผลต่อ Host PTY แล้ว
 
 ---
 *จัดทำขึ้นเพื่อให้การทำงานในระยะยาวเป็นไปได้อย่างสมบูรณ์และโปร่งใสสูงสุด*
