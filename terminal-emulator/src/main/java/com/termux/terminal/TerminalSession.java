@@ -123,53 +123,60 @@ public final class TerminalSession extends TerminalOutput {
     public void initializeEmulator(int columns, int rows) {
         mEmulator = new TerminalEmulator(this, columns, rows, mTranscriptRows, mClient);
 
-        int[] processId = new int[1];
-        mTerminalFileDescriptor = JNI.createSubprocess(mShellPath, mCwd, mArgs, mEnv, processId, rows, columns);
-        mShellPid = processId[0];
+        try {
+            int[] processId = new int[1];
+            mTerminalFileDescriptor = JNI.createSubprocess(mShellPath, mCwd, mArgs, mEnv, processId, rows, columns);
+            mShellPid = processId[0];
 
-        final FileDescriptor terminalFileDescriptorWrapped = wrapFileDescriptor(mTerminalFileDescriptor, mClient);
+            final FileDescriptor terminalFileDescriptorWrapped = wrapFileDescriptor(mTerminalFileDescriptor, mClient);
 
-        new Thread("TermSessionInputReader[pid=" + mShellPid + "]") {
-            @Override
-            public void run() {
-                try (InputStream termIn = new FileInputStream(terminalFileDescriptorWrapped)) {
+            new Thread("TermSessionInputReader[pid=" + mShellPid + "]") {
+                @Override
+                public void run() {
+                    try (InputStream termIn = new FileInputStream(terminalFileDescriptorWrapped)) {
+                        final byte[] buffer = new byte[4096];
+                        while (true) {
+                            int read = termIn.read(buffer);
+                            if (read == -1) return;
+                            if (!mProcessToTerminalIOQueue.write(buffer, 0, read)) return;
+                            mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+                        }
+                    } catch (Exception e) {
+                        // Ignore, just shutting down.
+                    }
+                }
+            }.start();
+
+            new Thread("TermSessionOutputWriter[pid=" + mShellPid + "]") {
+                @Override
+                public void run() {
                     final byte[] buffer = new byte[4096];
-                    while (true) {
-                        int read = termIn.read(buffer);
-                        if (read == -1) return;
-                        if (!mProcessToTerminalIOQueue.write(buffer, 0, read)) return;
-                        mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+                    try (FileOutputStream termOut = new FileOutputStream(terminalFileDescriptorWrapped)) {
+                        while (true) {
+                            int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true);
+                            if (bytesToWrite == -1) return;
+                            termOut.write(buffer, 0, bytesToWrite);
+                        }
+                    } catch (IOException e) {
+                        // Ignore.
                     }
-                } catch (Exception e) {
-                    // Ignore, just shutting down.
                 }
-            }
-        }.start();
+            }.start();
 
-        new Thread("TermSessionOutputWriter[pid=" + mShellPid + "]") {
-            @Override
-            public void run() {
-                final byte[] buffer = new byte[4096];
-                try (FileOutputStream termOut = new FileOutputStream(terminalFileDescriptorWrapped)) {
-                    while (true) {
-                        int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true);
-                        if (bytesToWrite == -1) return;
-                        termOut.write(buffer, 0, bytesToWrite);
-                    }
-                } catch (IOException e) {
-                    // Ignore.
+            new Thread("TermSessionWaiter[pid=" + mShellPid + "]") {
+                @Override
+                public void run() {
+                    int processExitCode = JNI.waitFor(mShellPid);
+                    mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_PROCESS_EXITED, processExitCode));
                 }
-            }
-        }.start();
-
-        new Thread("TermSessionWaiter[pid=" + mShellPid + "]") {
-            @Override
-            public void run() {
-                int processExitCode = JNI.waitFor(mShellPid);
-                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_PROCESS_EXITED, processExitCode));
-            }
-        }.start();
-
+            }.start();
+        } catch (Throwable t) {
+            mClient.logStackTraceWithMessage(LOG_TAG, "Failed to initialize terminal process", (t instanceof Exception) ? (Exception) t : new Exception(t));
+            String errorMsg = "\r\n[Failed to start terminal: " + t.getMessage() + "]\r\n";
+            byte[] errorBytes = errorMsg.getBytes(StandardCharsets.UTF_8);
+            mEmulator.append(errorBytes, errorBytes.length);
+            notifyScreenUpdate();
+        }
     }
 
     /** Write data to the shell process. */
@@ -325,9 +332,8 @@ public final class TerminalSession extends TerminalOutput {
             }
             descriptorField.setAccessible(true);
             descriptorField.set(result, fileDescriptor);
-        } catch (NoSuchFieldException | IllegalAccessException | IllegalArgumentException e) {
-            client.logStackTraceWithMessage(LOG_TAG, "Error accessing FileDescriptor#descriptor private field", e);
-            System.exit(1);
+        } catch (Throwable e) {
+            client.logStackTraceWithMessage(LOG_TAG, "Error accessing FileDescriptor#descriptor private field", (e instanceof Exception) ? (Exception) e : new Exception(e));
         }
         return result;
     }

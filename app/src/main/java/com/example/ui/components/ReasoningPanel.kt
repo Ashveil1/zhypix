@@ -34,7 +34,7 @@ fun ReasoningSidePanel(
     Surface(
         modifier = Modifier
             .fillMaxHeight()
-            .width(320.dp)
+            .widthIn(max = 320.dp)
             .border(1.dp, Color.White.copy(alpha = 0.08f)),
         color = SurfaceDark.copy(alpha = 0.95f),
         tonalElevation = 8.dp

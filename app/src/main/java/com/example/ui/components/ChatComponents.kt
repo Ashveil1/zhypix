@@ -95,16 +95,16 @@ fun MessageItem(message: ChatMessage, modifier: Modifier = Modifier) {
 
 @Composable
 fun UserMessageBubble(message: ChatMessage.User) {
-    Column(
-        horizontalAlignment = Alignment.End,
+    Box(
+        contentAlignment = Alignment.CenterEnd,
         modifier = Modifier.fillMaxWidth()
     ) {
         Box(
             modifier = Modifier
-                .widthIn(max = 290.dp)
-                .clip(RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp))
+                .widthIn(min = 40.dp, max = 560.dp)
+                .clip(RoundedCornerShape(14.dp, 14.dp, 2.dp, 14.dp))
                 .background(Color.White)
-                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp, 14.dp, 2.dp, 14.dp))
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Text(

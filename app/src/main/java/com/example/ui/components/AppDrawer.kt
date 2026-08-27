@@ -10,24 +10,33 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.outlined.Chat
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
-import com.zhypix.R
 import androidx.compose.ui.unit.sp
 import com.example.db.ChatSession
-import com.example.model.*
 import com.example.ui.theme.*
+import com.example.utils.LinuxTerminalSimulator
+import com.example.utils.ZhypixTerminalManager
 import com.example.viewmodel.AgentViewModel
+
+private val DrawerBg = Color(0xFF0C0C0E)
+private val CardBg = Color(0xFF131316)
+private val BorderSubtle = Color(0xFF222227)
+private val TextSubtle = Color(0xFF8E8E93)
 
 @Composable
 fun AppDrawerContent(
@@ -37,257 +46,226 @@ fun AppDrawerContent(
     onShowTerminal: () -> Unit,
     onDeleteSession: (ChatSession) -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     val chatSessions by viewModel.chatSessions.collectAsState()
     val currentSessionId by viewModel.currentSessionIdFlow.collectAsState()
+    val terminals by ZhypixTerminalManager.terminals.collectAsState()
 
     ModalDrawerSheet(
-        drawerContainerColor = SurfaceDark,
+        drawerContainerColor = DrawerBg,
         drawerContentColor = TextPrimary,
-        modifier = Modifier.width(320.dp)
+        drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp),
+        modifier = Modifier
+            .widthIn(max = 360.dp)
+            .fillMaxWidth(0.85f)
     ) {
-        // Header with clean vector branding
-        Box(
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 24.dp)
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
+            // Header Bar - Clean minimalist logo integrated with background
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 12.dp),
+                contentAlignment = Alignment.CenterStart
             ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color.Black.copy(alpha = 0.5f)
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        IsometricCube(
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.width(14.dp))
-                
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "Zhypix",
-                            fontSize = 19.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = Color.White,
-                            letterSpacing = 1.sp
-                        )
-                    }
-                }
+                IsometricCube(
+                    modifier = Modifier.size(40.dp)
+                )
             }
-        }
 
-        HorizontalDivider(color = BackgroundGradientStart, modifier = Modifier.padding(bottom = 8.dp))
-
-        // New Chat Button
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.White)
-                .clickable {
-                    viewModel.startNewSession()
-                    onCloseDrawer()
-                }
-                .padding(vertical = 11.dp, horizontal = 16.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("New Conversation", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
-        }
-
-        // Sessions List
-        Text(
-            text = "Recent Conversations",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = TextSecondary.copy(alpha = 0.5f),
-            modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 8.dp)
-        )
-
-        LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            items(chatSessions, key = { it.id }) { session ->
-                val isSelected = currentSessionId == session.id
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (isSelected) Color.White.copy(alpha = 0.06f) else Color.Transparent)
-                        .clickable {
-                            viewModel.loadSession(session.id)
-                            onCloseDrawer()
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            // Quick Action: New Session
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.White)
+                    .clickable {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        viewModel.startNewSession()
+                        onCloseDrawer()
+                    }
+                    .padding(vertical = 10.dp, horizontal = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Outlined.Chat,
+                        Icons.Default.Add,
                         contentDescription = null,
-                        tint = if (isSelected) TextPrimary else TextSecondary,
+                        tint = Color.Black,
                         modifier = Modifier.size(16.dp)
                     )
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = session.title,
-                        color = if (isSelected) TextPrimary else TextSecondary,
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f)
+                        text = "New Session",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
                     )
-                    if (isSelected) {
-                        IconButton(
-                            onClick = { onDeleteSession(session) },
-                            modifier = Modifier.size(24.dp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Section Label
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "CONVERSATIONS",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSubtle,
+                    letterSpacing = 0.8.sp
+                )
+                Text(
+                    text = "${chatSessions.size}",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = TextSubtle.copy(alpha = 0.7f)
+                )
+            }
+
+            // Chat Sessions List
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                if (chatSessions.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 28.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                tint = TextSecondary.copy(alpha = 0.4f),
-                                modifier = Modifier.size(14.dp)
+                            Text(
+                                text = "No conversation history",
+                                color = TextSubtle.copy(alpha = 0.5f),
+                                fontSize = 12.sp
                             )
                         }
                     }
+                } else {
+                    items(chatSessions, key = { it.id }) { session ->
+                        val isSelected = currentSessionId == session.id
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Color.White.copy(alpha = 0.08f) else Color.Transparent)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    viewModel.loadSession(session.id)
+                                    onCloseDrawer()
+                                }
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.ChatBubbleOutline,
+                                contentDescription = null,
+                                tint = if (isSelected) Color.White else TextSubtle,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = session.title.ifBlank { "Untitled Session" },
+                                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.75f),
+                                fontSize = 12.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (isSelected) {
+                                IconButton(
+                                    onClick = {
+                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onDeleteSession(session)
+                                    },
+                                    modifier = Modifier.size(22.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.DeleteOutline,
+                                        contentDescription = "Delete",
+                                        tint = TextSubtle.copy(alpha = 0.6f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        }
 
-        HorizontalDivider(color = BackgroundGradientStart)
-
-        // Controls Section
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Controls",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = TextSecondary.copy(alpha = 0.5f),
-                modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
-            )
-
-            // Settings
-            DrawerActionButton(
-                icon = Icons.Default.Settings,
-                text = "Settings",
-                onClick = {
-                    onShowSettings()
-                    onCloseDrawer()
-                }
-            )
-
-            // Linux Emulator
-            val isTerminalActive by com.example.utils.LinuxTerminalSimulator.isInstalled.collectAsState()
-            DrawerActionButton(
-                icon = Icons.Default.Computer,
-                text = "Linux Emulator",
-                isActive = isTerminalActive,
-                activeColor = SuccessGreen,
-                onClick = {
-                    onShowTerminal()
-                    onCloseDrawer()
-                },
-                badge = if (isTerminalActive) "ACTIVE" else "OFFLINE"
-            )
-        }
-
-        HorizontalDivider(color = BackgroundGradientStart)
-
-        // Footer Profile
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-                .background(Color.White.copy(alpha = 0.02f), RoundedCornerShape(16.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.06f), RoundedCornerShape(16.dp))
-                .clip(RoundedCornerShape(16.dp))
-                .clickable {
-                    onShowSettings()
-                    onCloseDrawer()
-                }
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
+            // Bottom Action Buttons: Terminal and Settings icon buttons
+            Row(
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(Color.Black, CircleShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.15f), CircleShape),
-                contentAlignment = Alignment.Center
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "U", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("My Workspace", color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            }
-            Icon(Icons.Default.Settings, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(18.dp))
-        }
-    }
-}
+                val runningCount = terminals.count { it.isRunning }
+                val isHighlight = runningCount > 0
 
-@Composable
-private fun DrawerActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    text: String,
-    isActive: Boolean = false,
-    activeColor: Color = CyanAccent,
-    onClick: () -> Unit,
-    badge: String? = null
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isActive) activeColor.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.02f))
-            .border(1.dp, if (isActive) activeColor.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .background(if (isActive) activeColor.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.04f), CircleShape)
-                .border(1.dp, if (isActive) activeColor.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.08f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = if (isActive) activeColor else TextPrimary, modifier = Modifier.size(14.dp))
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(text = text, color = TextPrimary, fontWeight = FontWeight.Medium, fontSize = 13.sp, modifier = Modifier.weight(1f))
-        if (badge != null) {
-            Box(
-                modifier = Modifier
-                    .background(if (isActive) activeColor.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 3.dp)
-            ) {
-                Text(
-                    text = badge,
-                    color = if (isActive) activeColor else TextSecondary.copy(alpha = 0.7f),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                )
+                // Terminal Button
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onShowTerminal()
+                        onCloseDrawer()
+                    },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(CardBg)
+                        .border(
+                            1.dp,
+                            if (isHighlight) SuccessGreen.copy(alpha = 0.35f) else BorderSubtle,
+                            RoundedCornerShape(10.dp)
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Terminal,
+                        contentDescription = "Terminal",
+                        tint = if (isHighlight) SuccessGreen else Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Settings Button
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onShowSettings()
+                        onCloseDrawer()
+                    },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(CardBg)
+                        .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = "Settings",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
     }

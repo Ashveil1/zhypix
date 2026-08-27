@@ -215,14 +215,14 @@ object LinuxTerminalSimulator {
 
     fun ensureProotPathResolved(context: Context) {
         if (prootPath == null) {
+            val nativeProotFile = File(context.applicationInfo.nativeLibraryDir, "libproot.so")
             val libDir = File(context.filesDir, "lib")
             val prootFile = File(libDir, "libproot.so")
-            val nativeProotFile = File(context.applicationInfo.nativeLibraryDir, "libproot.so")
-            if (isValidElf(prootFile)) {
+            if (isValidElf(nativeProotFile)) {
+                prootPath = nativeProotFile.absolutePath
+            } else if (isValidElf(prootFile)) {
                 prootFile.setExecutable(true, false)
                 prootPath = prootFile.absolutePath
-            } else if (isValidElf(nativeProotFile)) {
-                prootPath = nativeProotFile.absolutePath
             } else {
                 extractLibFromApk(context, "libproot.so", prootFile)
                 if (isValidElf(prootFile)) {
@@ -240,6 +240,11 @@ object LinuxTerminalSimulator {
         
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
             try {
+                if (!isDistroFullyInstalled(distro)) {
+                    android.util.Log.d("Zhypix", "Xvfb deferred: Distro '$distro' is not installed or incomplete.")
+                    return@launch
+                }
+                
                 // 2. Check if we already have a running Xvfb process
                 val currentProcess = xvfbProcess
                 val isAlive = if (currentProcess != null) {
@@ -251,9 +256,9 @@ object LinuxTerminalSimulator {
                     }
                 } else false
                 
-                val checkDistroDir = File(File(context.filesDir, "proot-distros"), distro)
-                val lockFile1 = File(checkDistroDir, "tmp/.X99-lock")
-                val lockFile2 = File(checkDistroDir, "tmp/.X11-unix/X99")
+                val distroDir = resolveDistroDir(distro)
+                val lockFile1 = File(distroDir, "tmp/.X99-lock")
+                val lockFile2 = File(distroDir, "tmp/.X11-unix/X99")
                 if (isAlive || lockFile1.exists() || lockFile2.exists()) {
                     android.util.Log.d("Zhypix", "Xvfb process or lock file is already running/present.")
                     return@launch
@@ -262,9 +267,6 @@ object LinuxTerminalSimulator {
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     terminalLines.add("[System] Starting Headless X11 Virtual Display Server on DISPLAY=:99 (1280x720 24-bit)...")
                 }
-                
-                // Start Xvfb and background command FIFO persistently in a background process
-                val distroDir = File(File(context.filesDir, "proot-distros"), distro)
                 
                 // CRITICAL: Clean up stale lock files from previous crashes/runs
                 try {
@@ -284,9 +286,11 @@ object LinuxTerminalSimulator {
                 val prootCmdList = mutableListOf<String>()
                 prootCmdList.add(prootPath ?: return@launch)
                 prootCmdList.add("-r")
-                prootCmdList.add(distroDir.absolutePath)
+                prootCmdList.add((try { distroDir.canonicalFile.absolutePath } catch (e: Exception) { distroDir.absolutePath }))
                 prootCmdList.add("-0")
-                prootCmdList.add("--link2symlink") // Solves Issue 2: dpkg status-old permission issues
+                prootCmdList.add("--link2symlink")
+                prootCmdList.add("--sysvipc")
+                prootCmdList.add("--kill-on-exit")
                 prootCmdList.add("-w")
                 prootCmdList.add("/root")
                 
@@ -338,7 +342,7 @@ object LinuxTerminalSimulator {
         startX11VirtualDisplayIfNeeded()
         val distro = _activeDistro.value ?: "ubuntu"
         val context = applicationContext ?: return null
-        val distroDir = File(File(context.filesDir, "proot-distros"), distro)
+        val distroDir = resolveDistroDir(distro)
         
         return withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -375,6 +379,7 @@ object LinuxTerminalSimulator {
     }
 
     private var globalWakeLock: android.os.PowerManager.WakeLock? = null
+    private var globalWifiLock: android.net.wifi.WifiManager.WifiLock? = null
     private val _isWakeLockHeld = MutableStateFlow(false)
     val isWakeLockHeld = _isWakeLockHeld.asStateFlow()
 
@@ -402,6 +407,35 @@ object LinuxTerminalSimulator {
                 _isWakeLockHeld.value = true
                 android.util.Log.d("LinuxTerminalSimulator", "Acquired continuous CPU WakeLock (Termux-style)")
             }
+
+            // Also acquire WifiLock (high perf) to keep network streaming alive in background
+            try {
+                if (globalWifiLock == null || !globalWifiLock!!.isHeld) {
+                    val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+                    val mode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    } else {
+                        @Suppress("DEPRECATION")
+                        android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    }
+                    globalWifiLock = wifiManager?.createWifiLock(mode, "Zhypix:WifiLock")?.apply {
+                        setReferenceCounted(false)
+                        acquire()
+                    }
+                }
+            } catch (e: Exception) {}
+
+            // Ensure background service is running to guarantee low OOM score
+            try {
+                val sIntent = android.content.Intent(context, com.example.service.FloatingAgentService::class.java).apply {
+                    action = "ACTION_UPDATE_WAKELOCK"
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(sIntent)
+                } else {
+                    context.startService(sIntent)
+                }
+            } catch (e: Exception) {}
         } catch (e: Exception) {
             android.util.Log.e("LinuxTerminalSimulator", "Failed to acquire WakeLock: ${e.message}")
         }
@@ -414,7 +448,49 @@ object LinuxTerminalSimulator {
                 _isWakeLockHeld.value = false
                 android.util.Log.d("LinuxTerminalSimulator", "Released CPU WakeLock")
             }
+            if (globalWifiLock != null && globalWifiLock!!.isHeld) {
+                globalWifiLock?.release()
+            }
+            applicationContext?.let { ctx ->
+                try {
+                    val sIntent = android.content.Intent(ctx, com.example.service.FloatingAgentService::class.java).apply {
+                        action = "ACTION_UPDATE_WAKELOCK"
+                    }
+                    ctx.startService(sIntent)
+                } catch (e: Exception) {}
+            }
         } catch (e: Exception) {}
+    }
+
+    fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+        return try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: false
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    fun requestIgnoreBatteryOptimization(context: Context) {
+        try {
+            if (!isIgnoringBatteryOptimizations(context)) {
+                val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+            }
+        } catch (e: Exception) {
+            try {
+                // Fallback to battery optimization settings
+                val intent = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                    flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+                context.startActivity(intent)
+            } catch (e2: Exception) {
+                android.util.Log.e("LinuxTerminalSimulator", "Could not open battery optimization settings", e2)
+            }
+        }
     }
 
     var globalRealDirectory = File(System.getProperty("user.dir") ?: "/")
@@ -450,13 +526,26 @@ object LinuxTerminalSimulator {
     }
 
     private fun isValidElf(file: File): Boolean {
-        if (!file.exists() || file.length() < 4) return false
+        if (!file.exists() || file.length() < 20) return false
         return try {
             file.inputStream().use { input ->
-                val header = ByteArray(4)
+                val header = ByteArray(64)
                 val read = input.read(header)
-                if (read < 4) return false
-                header[0] == 0x7F.toByte() && header[1] == 'E'.code.toByte() && header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte()
+                if (read < 20) return false
+                val magicValid = header[0] == 0x7F.toByte() && header[1] == 'E'.code.toByte() && header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte()
+                if (!magicValid) return false
+                
+                if (read >= 24) {
+                    val eVersion = (header[20].toInt() and 0xFF) or ((header[21].toInt() and 0xFF) shl 8) or ((header[22].toInt() and 0xFF) shl 16) or ((header[23].toInt() and 0xFF) shl 24)
+                    if (eVersion != 0 && eVersion != 1) return false
+                }
+                
+                if (read >= 64) {
+                    val hostIsArm = isHostCpuArm()
+                    val binIsArm = isBinaryArm(file)
+                    if (hostIsArm != binIsArm) return false
+                }
+                true
             }
         } catch (e: Exception) {
             false
@@ -771,20 +860,18 @@ object LinuxTerminalSimulator {
         )
 
         libsToCopy.forEach { libName ->
+            val srcLib = File(nativeDir, libName)
             val destLib = File(libDir, libName)
             var valid = false
             
-            // 1. Check if destLib is already valid
-            if (destLib.exists() && isValidElf(destLib)) {
-                destLib.setExecutable(true, false)
-                valid = true
-            }
-
-            // 2. Try copying from nativeLibraryDir
-            if (!valid) {
-                val srcLib = File(nativeDir, libName)
-                if (srcLib.exists() && isValidElf(srcLib)) {
+            // 1. Try copying from nativeLibraryDir if srcLib is valid
+            if (srcLib.exists() && isValidElf(srcLib)) {
+                if (destLib.exists() && isValidElf(destLib) && destLib.length() == srcLib.length()) {
+                    destLib.setExecutable(true, false)
+                    valid = true
+                } else {
                     try {
+                        if (destLib.exists()) destLib.delete()
                         srcLib.inputStream().use { input ->
                             destLib.outputStream().use { output ->
                                 input.copyTo(output)
@@ -798,10 +885,14 @@ object LinuxTerminalSimulator {
                         e.printStackTrace()
                     }
                 }
+            } else if (destLib.exists() && isValidElf(destLib)) {
+                destLib.setExecutable(true, false)
+                valid = true
             }
-            
-            // 3. Extract directly from APK if still not valid
+
+            // 2. Extract directly from APK if still not valid
             if (!valid) {
+                if (destLib.exists()) destLib.delete()
                 val extracted = extractLibFromApk(context, libName, destLib)
                 if (extracted && destLib.exists() && isValidElf(destLib)) {
                     destLib.setExecutable(true, false)
@@ -810,24 +901,55 @@ object LinuxTerminalSimulator {
             }
         }
         
-        // Ensure libtalloc.so.2 exists (needed by libproot.so)
+        // Ensure libtalloc.so.2 and libtalloc.so.2.4.3 exist (needed by libproot.so)
         val destTalloc = File(libDir, "libtalloc.so")
         if (destTalloc.exists() && isValidElf(destTalloc)) {
-            val destTalloc2 = File(libDir, "libtalloc.so.2")
-            try {
-                destTalloc.inputStream().use { input ->
-                    destTalloc2.outputStream().use { output ->
-                        input.copyTo(output)
+            for (alias in listOf("libtalloc.so.2", "libtalloc.so.2.4.3")) {
+                val aliasFile = File(libDir, alias)
+                if (!aliasFile.exists() || aliasFile.length() != destTalloc.length() || !isValidElf(aliasFile)) {
+                    try {
+                        if (aliasFile.exists()) aliasFile.delete()
+                        destTalloc.inputStream().use { input ->
+                            aliasFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                        aliasFile.setExecutable(true, false)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
+                } else {
+                    aliasFile.setExecutable(true, false)
                 }
-                destTalloc2.setExecutable(true, false)
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
 
+        // Ensure libbusybox.so.1.38.0 exists (needed by libbusybox.so)
+        val destBusybox = File(libDir, "libbusybox.so")
+        if (destBusybox.exists() && isValidElf(destBusybox)) {
+            val destBusyboxVer = File(libDir, "libbusybox.so.1.38.0")
+            if (!destBusyboxVer.exists() || destBusyboxVer.length() != destBusybox.length() || !isValidElf(destBusyboxVer)) {
+                try {
+                    if (destBusyboxVer.exists()) destBusyboxVer.delete()
+                    destBusybox.inputStream().use { input ->
+                        destBusyboxVer.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    destBusyboxVer.setExecutable(true, false)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else {
+                destBusyboxVer.setExecutable(true, false)
+            }
+        }
+
+        val nativeProot = File(nativeDir, "libproot.so")
         val prootFile = File(libDir, "libproot.so")
-        if (isValidElf(prootFile)) {
+        if (nativeProot.exists() && isValidElf(nativeProot)) {
+            prootPath = nativeProot.absolutePath
+        } else if (isValidElf(prootFile)) {
             prootFile.setExecutable(true, false)
             prootPath = prootFile.absolutePath
         } else {
@@ -842,12 +964,34 @@ object LinuxTerminalSimulator {
 
         // Check installed distros
         val prootDir = File(context.filesDir, "proot-distros")
+        prootDir.mkdirs()
+        try {
+            val singularDir = File(context.filesDir, "proot-distro")
+            if (Files.isSymbolicLink(singularDir.toPath()) || (singularDir.exists() && !singularDir.isDirectory)) {
+                try { singularDir.delete() } catch (_: Exception) {}
+            }
+            if (!singularDir.exists()) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                    try { android.system.Os.symlink("proot-distros", singularDir.absolutePath) } catch (_: Exception) { singularDir.mkdirs() }
+                } else {
+                    singularDir.mkdirs()
+                }
+            }
+        } catch (e: Exception) {}
         var installed = setOf<String>()
         if (prootDir.exists()) {
             installed = prootDir.listFiles()?.filter { 
-                it.isDirectory && (File(it, "bin").exists() || File(it, "usr").exists() || File(it, "etc").exists())
+                it.isDirectory && isDistroFullyInstalled(it.name)
             }?.map { it.name }?.toSet() ?: setOf()
             _installedDistros.value = installed
+            installed.forEach { distroAlias ->
+                try {
+                    val dDir = resolveDistroDir(distroAlias)
+                    if (dDir.exists()) {
+                        removeLegacyMockWrappers(dDir)
+                    }
+                } catch (_: Exception) {}
+            }
         }
 
         // Load saved sessions if they exist
@@ -941,13 +1085,16 @@ object LinuxTerminalSimulator {
         prootDir.mkdirs()
         val distroDir = File(prootDir, distroAlias)
         
-        val files = distroDir.listFiles()
-        val isReallyInstalled = distroDir.exists() && files != null && files.isNotEmpty() && 
-                                (File(distroDir, "bin").exists() || File(distroDir, "usr").exists() || File(distroDir, "etc").exists())
+        val isReallyInstalled = isDistroFullyInstalled(distroAlias)
         if (isReallyInstalled) {
             terminalLines.add("Distribution $distroAlias is already installed.")
             onComplete(true)
             return
+        }
+        
+        if (distroDir.exists() && !isReallyInstalled) {
+            terminalLines.add("Cleaning up incomplete or corrupted environment for $distroAlias...")
+            distroDir.deleteRecursively()
         }
         
         terminalLines.add("Installing $distroAlias...")
@@ -1086,180 +1233,111 @@ object LinuxTerminalSimulator {
                 
                 onProgress(0.5f, "Download complete. Extracting rootfs...")
                 
-                var nativeExtractionSuccess = false
-                val busyboxCandidate1 = File(context.filesDir, "lib/libbusybox.so")
-                val busyboxCandidate2 = File(context.applicationInfo.nativeLibraryDir, "libbusybox.so")
-                val busyboxFile = if (busyboxCandidate1.exists()) busyboxCandidate1 else if (busyboxCandidate2.exists()) busyboxCandidate2 else null
-
-                if (busyboxFile != null && busyboxFile.exists()) {
-                    try {
-                        busyboxFile.setExecutable(true, false)
-                        onProgress(0.55f, "Extracting rootfs (Native BusyBox)...")
-                        terminalLines.add("Extracting rootfs using native BusyBox (extremely fast & memory-safe)...")
-                        
-                        val isXz = currentDownloadedFile.name.endsWith(".xz")
-                        val decompCmd = if (isXz) "xz" else "gzip"
-                        
-                        val cmd = "${busyboxFile.absolutePath} $decompCmd -d -c '${currentDownloadedFile.absolutePath}' | ${busyboxFile.absolutePath} tar -xf - -C '${distroDir.absolutePath}'"
-                        
-                        val process = ProcessBuilder(busyboxFile.absolutePath, "sh", "-c", cmd)
-                            .directory(context.filesDir)
-                            .redirectErrorStream(true)
-                            .start()
-                            
-                        val processReader = java.io.BufferedReader(java.io.InputStreamReader(process.inputStream, "UTF-8"))
-                        var line: String?
-                        while (processReader.readLine().also { line = it } != null) {
-                            android.util.Log.d("BusyBoxExtract", line ?: "")
-                        }
-                        
-                        val exitCode = process.waitFor()
-                        if (exitCode == 0) {
-                            nativeExtractionSuccess = true
-                            terminalLines.add("Native BusyBox extraction completed successfully!")
-                        } else {
-                            terminalLines.add("Native BusyBox pipeline failed with exit code $exitCode. Retrying with direct tar...")
-                            val directProcess = ProcessBuilder(
-                                busyboxFile.absolutePath, "tar", "-xf", currentDownloadedFile.absolutePath, "-C", distroDir.absolutePath
-                            )
-                                .directory(context.filesDir)
-                                .redirectErrorStream(true)
-                                .start()
-                            
-                            val directReader = java.io.BufferedReader(java.io.InputStreamReader(directProcess.inputStream, "UTF-8"))
-                            while (directReader.readLine().also { line = it } != null) {
-                                android.util.Log.d("BusyBoxExtractDirect", line ?: "")
-                            }
-                            val directExit = directProcess.waitFor()
-                            if (directExit == 0) {
-                                nativeExtractionSuccess = true
-                                terminalLines.add("Direct BusyBox tar extraction completed successfully!")
-                            } else {
-                                terminalLines.add("Direct BusyBox tar failed with exit code $directExit.")
-                            }
-                        }
-                    } catch (ex: Exception) {
-                        terminalLines.add("Native BusyBox extraction failed: ${ex.message}. Falling back to JVM extractor...")
+                terminalLines.add("Starting pure JVM rootfs extractor (memory-safe & portable)...")
+                try {
+                    val bufferSize = 32768
+                    val fis = FileInputStream(currentDownloadedFile)
+                    val bis = BufferedInputStream(fis, bufferSize)
+                    val isXz = currentDownloadedFile.name.endsWith(".xz")
+                    val decompressorStream = if (isXz) {
+                        org.apache.commons.compress.compressors.xz.XZCompressorInputStream(bis)
+                    } else {
+                        GzipCompressorInputStream(bis)
                     }
-                }
-
-                if (nativeExtractionSuccess) {
+                    val taris = TarArchiveInputStream(decompressorStream)
+                    
+                    var entry: TarArchiveEntry?
+                    var filesExtracted = 0
+                    
+                    while (taris.nextEntry.also { entry = it as? TarArchiveEntry } != null) {
+                        val currentEntry = entry ?: continue
+                        val outputFile = File(distroDir, currentEntry.name)
+                        
+                        if (currentEntry.isDirectory) {
+                            outputFile.mkdirs()
+                        } else if (currentEntry.isSymbolicLink || currentEntry.isLink) {
+                            if (outputFile.exists() || Files.isSymbolicLink(Paths.get(outputFile.absolutePath))) {
+                                outputFile.deleteRecursively()
+                            }
+                            outputFile.parentFile?.mkdirs()
+                            
+                            var linkTarget = currentEntry.linkName
+                            if (linkTarget.startsWith("/")) {
+                                try {
+                                    val targetAbs = File(distroDir, linkTarget.removePrefix("/")).toPath().toAbsolutePath()
+                                    val parentAbs = (outputFile.parentFile ?: distroDir).toPath().toAbsolutePath()
+                                    val relPath = parentAbs.relativize(targetAbs).toString()
+                                    linkTarget = if (relPath.isBlank()) "." else relPath
+                                } catch (e: Exception) {
+                                    linkTarget = linkTarget.removePrefix("/")
+                                }
+                            }
+                            
+                            var linkCreated = false
+                            if (currentEntry.isLink) {
+                                try {
+                                    val targetFile = File(distroDir, currentEntry.linkName.removePrefix("/"))
+                                    if (targetFile.exists() && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        Files.createLink(Paths.get(outputFile.absolutePath), targetFile.toPath())
+                                        linkCreated = true
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                            
+                            if (!linkCreated) {
+                                try {
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                                        android.system.Os.symlink(linkTarget, outputFile.absolutePath)
+                                    } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                        Files.createSymbolicLink(Paths.get(outputFile.absolutePath), Paths.get(linkTarget))
+                                    }
+                                } catch (e: Exception) {
+                                    try {
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                            Files.createSymbolicLink(Paths.get(outputFile.absolutePath), Paths.get(linkTarget))
+                                        }
+                                    } catch (ex: Exception) {}
+                                }
+                            }
+                        } else {
+                            if (outputFile.exists() || Files.isSymbolicLink(Paths.get(outputFile.absolutePath))) {
+                                outputFile.deleteRecursively()
+                            }
+                            outputFile.parentFile?.mkdirs()
+                            FileOutputStream(outputFile).use { fos ->
+                                val buffer = ByteArray(bufferSize)
+                                var len: Int
+                                while (taris.read(buffer).also { len = it } != -1) {
+                                    fos.write(buffer, 0, len)
+                                }
+                            }
+                            
+                            // Restore Unix executable permissions if necessary
+                            if ((currentEntry.mode and 0x49) != 0) { // Check user, group, or other executable bit (0111 octal / 73 decimal)
+                                outputFile.setExecutable(true, false)
+                            }
+                        }
+                        
+                        filesExtracted++
+                        if (filesExtracted % 100 == 0) {
+                            val progress = 0.5f + 0.45f * (filesExtracted.toFloat() / (filesExtracted + 3000))
+                            onProgress(progress, "Extracted $filesExtracted files...")
+                            terminalLines.add("Extracted: ${currentEntry.name}")
+                        }
+                    }
+                    taris.close()
+                    decompressorStream.close()
+                    bis.close()
+                    fis.close()
+                    
                     if (currentDownloadedFile.exists()) {
                         currentDownloadedFile.delete()
                     }
-                } else {
-                    terminalLines.add("Starting JVM fallback extractor...")
-                    try {
-                        val bufferSize = 32768
-                        val fis = FileInputStream(currentDownloadedFile)
-                        val bis = BufferedInputStream(fis, bufferSize)
-                        val isXz = currentDownloadedFile.name.endsWith(".xz")
-                        val decompressorStream = if (isXz) {
-                            org.apache.commons.compress.compressors.xz.XZCompressorInputStream(bis)
-                        } else {
-                            GzipCompressorInputStream(bis)
-                        }
-                        val taris = TarArchiveInputStream(decompressorStream)
-                        
-                        var entry: TarArchiveEntry?
-                        var filesExtracted = 0
-                        
-                        while (taris.nextEntry.also { entry = it as? TarArchiveEntry } != null) {
-                            val currentEntry = entry ?: continue
-                            val outputFile = File(distroDir, currentEntry.name)
-                            
-                            if (currentEntry.isDirectory) {
-                                outputFile.mkdirs()
-                            } else if (currentEntry.isSymbolicLink || currentEntry.isLink) {
-                                if (outputFile.exists() || Files.isSymbolicLink(Paths.get(outputFile.absolutePath))) {
-                                    outputFile.deleteRecursively()
-                                }
-                                outputFile.parentFile?.mkdirs()
-                                
-                                var linkTarget = currentEntry.linkName
-                                if (linkTarget.startsWith("/")) {
-                                    try {
-                                        val targetAbsoluteFile = File(distroDir, linkTarget.removePrefix("/"))
-                                        val symlinkParentPath = outputFile.parentFile.toPath().toAbsolutePath()
-                                        val relativePath = symlinkParentPath.relativize(targetAbsoluteFile.toPath().toAbsolutePath())
-                                        linkTarget = relativePath.toString()
-                                    } catch (e: Exception) {
-                                        linkTarget = linkTarget.removePrefix("/")
-                                    }
-                                }
-                                
-                                var linkCreated = false
-                                if (currentEntry.isLink) {
-                                    try {
-                                        val targetFile = File(distroDir, currentEntry.linkName.removePrefix("/"))
-                                        if (targetFile.exists()) {
-                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                                Files.createLink(Paths.get(outputFile.absolutePath), targetFile.toPath())
-                                                linkCreated = true
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        // Fallback to relative symlink
-                                    }
-                                }
-                                
-                                if (!linkCreated) {
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        try {
-                                            val targetPath = Paths.get(linkTarget)
-                                            val linkPath = Paths.get(outputFile.absolutePath)
-                                            Files.createSymbolicLink(linkPath, targetPath)
-                                        } catch (e: Exception) {
-                                            try {
-                                                Runtime.getRuntime().exec(arrayOf("ln", "-s", linkTarget, outputFile.absolutePath)).waitFor()
-                                            } catch (ex: Exception) {}
-                                        }
-                                    } else {
-                                        try {
-                                            Runtime.getRuntime().exec(arrayOf("ln", "-s", linkTarget, outputFile.absolutePath)).waitFor()
-                                        } catch (e: Exception) {}
-                                    }
-                                }
-                            } else {
-                                if (outputFile.exists() || Files.isSymbolicLink(Paths.get(outputFile.absolutePath))) {
-                                    outputFile.deleteRecursively()
-                                }
-                                outputFile.parentFile?.mkdirs()
-                                FileOutputStream(outputFile).use { fos ->
-                                    val buffer = ByteArray(bufferSize)
-                                    var len: Int
-                                    while (taris.read(buffer).also { len = it } != -1) {
-                                        fos.write(buffer, 0, len)
-                                    }
-                                }
-                                
-                                // Restore Unix executable permissions if necessary
-                                if ((currentEntry.mode and 0x49) != 0) { // Check user, group, or other executable bit (0111 octal / 73 decimal)
-                                    outputFile.setExecutable(true, false)
-                                }
-                            }
-                            
-                            filesExtracted++
-                            if (filesExtracted % 100 == 0) {
-                                val progress = 0.5f + 0.45f * (filesExtracted.toFloat() / (filesExtracted + 3000))
-                                onProgress(progress, "Extracted $filesExtracted files...")
-                                terminalLines.add("Extracted: ${currentEntry.name}")
-                            }
-                        }
-                        taris.close()
-                        decompressorStream.close()
-                        bis.close()
-                        fis.close()
-                        
-                        if (currentDownloadedFile.exists()) {
-                            currentDownloadedFile.delete()
-                        }
-                        terminalLines.add("Successfully extracted $filesExtracted items natively!")
-                    } catch (e: Throwable) {
-                        terminalLines.add("Native extraction failed: ${e.message}")
-                        e.printStackTrace()
-                        throw e
-                    }
+                    terminalLines.add("Successfully extracted $filesExtracted items natively!")
+                } catch (e: Throwable) {
+                    terminalLines.add("Extraction failed: ${e.message}")
+                    e.printStackTrace()
+                    throw e
                 }
                 
                 terminalLines.add("Installation of $distroAlias complete!")
@@ -1293,6 +1371,11 @@ object LinuxTerminalSimulator {
             } catch (e: Throwable) {
                 terminalLines.add("Error installing distro: ${e.message}")
                 onProgress(0f, "Error: ${e.message}")
+                try {
+                    if (distroDir.exists() && !isDistroFullyInstalled(distroAlias)) {
+                        distroDir.deleteRecursively()
+                    }
+                } catch (_: Exception) {}
                 onComplete(false)
             }
         }
@@ -1308,6 +1391,7 @@ object LinuxTerminalSimulator {
         try {
             log("Scanning for absolute symbolic links to make them relative...")
             var count = 0
+            val canonicalDistroDir = try { distroDir.canonicalFile } catch (e: Exception) { distroDir.absoluteFile }
             
             fun traverse(file: File) {
                 if (Files.isSymbolicLink(file.toPath())) {
@@ -1315,14 +1399,34 @@ object LinuxTerminalSimulator {
                         val targetPath = Files.readSymbolicLink(file.toPath())
                         val targetStr = targetPath.toString()
                         if (targetStr.startsWith("/")) {
-                            val realTargetOnHost = File(distroDir, targetStr.removePrefix("/"))
-                            val parentPath = file.parentFile.toPath().toAbsolutePath()
-                            val targetPathAbs = realTargetOnHost.toPath().toAbsolutePath()
-                            val relativePath = parentPath.relativize(targetPathAbs).toString()
+                            val realTargetOnHost = File(canonicalDistroDir, targetStr.removePrefix("/"))
+                            val parentFile = file.parentFile ?: canonicalDistroDir
+                            val relativePath = try {
+                                val rel = parentFile.toPath().toAbsolutePath().relativize(realTargetOnHost.toPath().toAbsolutePath()).toString()
+                                if (rel.isBlank()) "." else rel
+                            } catch (e: Exception) {
+                                targetStr.removePrefix("/")
+                            }
                             
-                            file.delete()
-                            Files.createSymbolicLink(file.toPath(), Paths.get(relativePath))
-                            count++
+                            val tempFile = File(parentFile, ".symlink_tmp_${java.util.UUID.randomUUID()}")
+                            var success = false
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                                try {
+                                    android.system.Os.symlink(relativePath, tempFile.absolutePath)
+                                    success = true
+                                } catch (_: Exception) {}
+                            }
+                            if (!success && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                try {
+                                    Files.createSymbolicLink(tempFile.toPath(), Paths.get(relativePath))
+                                    success = true
+                                } catch (_: Exception) {}
+                            }
+                            if (success) {
+                                file.delete()
+                                tempFile.renameTo(file)
+                                count++
+                            }
                         }
                     } catch (e: Exception) {
                         // ignore single file error
@@ -1340,7 +1444,7 @@ object LinuxTerminalSimulator {
                 }
             }
             
-            traverse(distroDir)
+            traverse(canonicalDistroDir)
             log("Symlink scan completed. Fixed $count absolute symlinks.")
         } catch (e: Exception) {
             log("Error during symlink scan: ${e.message}")
@@ -1405,6 +1509,19 @@ object LinuxTerminalSimulator {
             val statusOldFile = File(distroDir, "var/lib/dpkg/status-old")
             val statusNewFile = File(distroDir, "var/lib/dpkg/status-new")
 
+            fun removeIfSymlink(file: File) {
+                try {
+                    val p = file.toPath()
+                    if (java.nio.file.Files.isSymbolicLink(p)) {
+                        java.nio.file.Files.deleteIfExists(p)
+                    }
+                } catch (_: Exception) {}
+            }
+
+            removeIfSymlink(statusOldFile)
+            removeIfSymlink(statusNewFile)
+            removeIfSymlink(statusFile)
+
             if ((!statusFile.exists() || statusFile.length() == 0L) && statusOldFile.exists() && statusOldFile.length() > 0L) {
                 try {
                     statusOldFile.copyTo(statusFile, overwrite = true)
@@ -1415,7 +1532,14 @@ object LinuxTerminalSimulator {
                 } catch (e: Exception) {}
             }
 
+            if (statusFile.exists() && statusFile.length() > 0L && (!statusOldFile.exists() || statusOldFile.length() == 0L)) {
+                try {
+                    statusFile.copyTo(statusOldFile, overwrite = true)
+                } catch (e: Exception) {}
+            }
+
             val availableFile = File(distroDir, "var/lib/dpkg/available")
+            removeIfSymlink(availableFile)
             if (!availableFile.exists()) {
                 try { availableFile.createNewFile() } catch (e: Exception) {}
             }
@@ -1439,6 +1563,7 @@ object LinuxTerminalSimulator {
             for (lockPath in lockFiles) {
                 try {
                     val lFile = File(distroDir, lockPath)
+                    removeIfSymlink(lFile)
                     if (lFile.exists()) {
                         lFile.delete()
                     }
@@ -1449,9 +1574,10 @@ object LinuxTerminalSimulator {
             if (updatesDir.exists() && updatesDir.isDirectory) {
                 updatesDir.listFiles()?.forEach { uFile ->
                     try {
+                        removeIfSymlink(uFile)
                         uFile.setWritable(true, false)
                         uFile.setReadable(true, false)
-                        if (uFile.length() == 0L) {
+                        if (uFile.length() == 0L || !uFile.exists()) {
                             uFile.delete()
                         }
                     } catch (e: Exception) {}
@@ -1459,11 +1585,19 @@ object LinuxTerminalSimulator {
             }
 
             try {
-                val dpkgCfg = File(distroDir, "etc/dpkg/dpkg.cfg.d/force-unsafe-io")
-                dpkgCfg.parentFile?.mkdirs()
+                val dpkgCfgDir = File(distroDir, "etc/dpkg/dpkg.cfg.d")
+                dpkgCfgDir.mkdirs()
+                val dpkgCfg = File(dpkgCfgDir, "99_android")
                 dpkgCfg.writeText("force-unsafe-io\nforce-bad-path\nno-debsig\nforce-overwrite\n")
                 dpkgCfg.setReadable(true, false)
                 dpkgCfg.setWritable(true, false)
+
+                val aptCfgDir = File(distroDir, "etc/apt/apt.conf.d")
+                aptCfgDir.mkdirs()
+                val aptCfg = File(aptCfgDir, "99_android")
+                aptCfg.writeText("DPkg::Options {\n   \"--force-unsafe-io\";\n   \"--force-bad-path\";\n   \"--force-overwrite\";\n};\nAPT::Register-Post-Invoke { \"true\"; };\nAPT::Get::AllowUnauthenticated \"true\";\n")
+                aptCfg.setReadable(true, false)
+                aptCfg.setWritable(true, false)
             } catch (e: Exception) {}
 
             val dummyScriptPaths = listOf(
@@ -1484,6 +1618,40 @@ object LinuxTerminalSimulator {
                 } catch (e: Exception) {}
             }
 
+            // Fix ldconfig / ldconfig.real symlink issues under PRoot (solves dpkg --configure -a hanging)
+            try {
+                val sbinLdconfig = File(distroDir, "sbin/ldconfig")
+                val usrSbinLdconfig = File(distroDir, "usr/sbin/ldconfig")
+                val sbinLdconfigReal = File(distroDir, "sbin/ldconfig.real")
+                val usrSbinLdconfigReal = File(distroDir, "usr/sbin/ldconfig.real")
+
+                val realTarget = when {
+                    usrSbinLdconfigReal.exists() -> usrSbinLdconfigReal
+                    sbinLdconfigReal.exists() -> sbinLdconfigReal
+                    else -> null
+                }
+
+                listOf(sbinLdconfig, usrSbinLdconfig).forEach { targetFile ->
+                    targetFile.parentFile?.mkdirs()
+                    if (!targetFile.exists() || targetFile.length() == 0L) {
+                        removeIfSymlink(targetFile)
+                        if (realTarget != null) {
+                            try {
+                                java.nio.file.Files.createSymbolicLink(targetFile.toPath(), java.nio.file.Paths.get("ldconfig.real"))
+                            } catch (_: Exception) {
+                                targetFile.writeText("#!/bin/sh\nif [ -x /usr/sbin/ldconfig.real ]; then\n  exec /usr/sbin/ldconfig.real \"$@\"\nelif [ -x /sbin/ldconfig.real ]; then\n  exec /sbin/ldconfig.real \"$@\"\nelse\n  exit 0\nfi\n")
+                            }
+                        } else {
+                            targetFile.writeText("#!/bin/sh\nexit 0\n")
+                        }
+                    }
+                    try {
+                        targetFile.setExecutable(true, false)
+                        targetFile.setReadable(true, false)
+                    } catch (_: Exception) {}
+                }
+            } catch (e: Exception) {}
+
             try {
                 val resolvConf = File(distroDir, "etc/resolv.conf")
                 if (!resolvConf.exists() || resolvConf.length() == 0L) {
@@ -1501,9 +1669,115 @@ object LinuxTerminalSimulator {
                     hostsFile.setWritable(true, false)
                 }
             } catch (e: Exception) {}
+
+            // Prevent warnings like "groups: cannot find name for group ID ..."
+            ensureAndroidIdsInGuestFiles(distroDir)
         } catch (e: Exception) {
             log("Error during dpkg database repair: ${e.message}")
         }
+    }
+
+    private fun ensureAndroidIdsInGuestFiles(distroDir: File) {
+        try {
+            val etcDir = File(distroDir, "etc")
+            if (!etcDir.exists()) etcDir.mkdirs()
+
+            val groupFile = File(etcDir, "group")
+            val myUid = try { android.os.Process.myUid() } catch (_: Exception) { 10000 }
+            
+            val defaultGroupsToAdd = mutableMapOf<Int, String>(
+                3003 to "inet",
+                9997 to "everybody",
+                1015 to "sdcard_rw",
+                1023 to "media_rw",
+                1028 to "sdcard_r",
+                3001 to "net_bt_admin",
+                3002 to "net_bt",
+                3004 to "net_raw",
+                3005 to "net_admin"
+            )
+            // Also include myUid if it's not root (0)
+            if (myUid > 0 && !defaultGroupsToAdd.containsKey(myUid)) {
+                defaultGroupsToAdd[myUid] = "aid_app_$myUid"
+            }
+
+            // Let's add other common user group IDs mentioned in the prompt (e.g. 20331, 50331, etc.)
+            val staticCommonGids = listOf(20331, 50331)
+            staticCommonGids.forEach { gid ->
+                if (!defaultGroupsToAdd.containsKey(gid)) {
+                    defaultGroupsToAdd[gid] = "aid_app_$gid"
+                }
+            }
+
+            if (groupFile.exists()) {
+                val lines = groupFile.readLines().toMutableList()
+                val existingGids = mutableSetOf<Int>()
+                lines.forEach { line ->
+                    val parts = line.split(":")
+                    if (parts.size >= 3) {
+                        parts[2].toIntOrNull()?.let { existingGids.add(it) }
+                    }
+                }
+                
+                var modified = false
+                defaultGroupsToAdd.forEach { (gid, name) ->
+                    if (!existingGids.contains(gid)) {
+                        lines.add("$name:x:$gid:root")
+                        modified = true
+                    }
+                }
+                if (modified) {
+                    groupFile.writeText(lines.joinToString("\n") + "\n")
+                }
+            } else {
+                val sb = java.lang.StringBuilder()
+                sb.append("root:x:0:\n")
+                defaultGroupsToAdd.forEach { (gid, name) ->
+                    sb.append("$name:x:$gid:root\n")
+                }
+                groupFile.writeText(sb.toString())
+            }
+
+            // Same for /etc/passwd to prevent "cannot find name for user ID ..."
+            val passwdFile = File(etcDir, "passwd")
+            if (passwdFile.exists()) {
+                val lines = passwdFile.readLines().toMutableList()
+                val existingUids = mutableSetOf<Int>()
+                lines.forEach { line ->
+                    val parts = line.split(":")
+                    if (parts.size >= 3) {
+                        parts[2].toIntOrNull()?.let { existingUids.add(it) }
+                    }
+                }
+                
+                var modified = false
+                if (myUid > 0 && !existingUids.contains(myUid)) {
+                    lines.add("aid_app_$myUid:x:$myUid:$myUid:Android App:/root:/bin/bash")
+                    modified = true
+                }
+                staticCommonGids.forEach { uid ->
+                    if (uid > 0 && !existingUids.contains(uid)) {
+                        lines.add("aid_app_$uid:x:$uid:$uid:Android App:/root:/bin/bash")
+                        modified = true
+                    }
+                }
+                if (modified) {
+                    passwdFile.writeText(lines.joinToString("\n") + "\n")
+                }
+            } else {
+                val sb = java.lang.StringBuilder()
+                sb.append("root:x:0:0:root:/root:/bin/bash\n")
+                if (myUid > 0) {
+                    sb.append("aid_app_$myUid:x:$myUid:$myUid:Android App:/root:/bin/bash\n")
+                }
+                staticCommonGids.forEach { uid ->
+                    if (uid != myUid) {
+                        sb.append("aid_app_$uid:x:$uid:$uid:Android App:/root:/bin/bash\n")
+                    }
+                }
+                passwdFile.writeText(sb.toString())
+            }
+        } catch (_: Exception) {}
     }
 
     private fun ensureRobustFilesystem(distroDir: File) {
@@ -1792,7 +2066,7 @@ object LinuxTerminalSimulator {
             }
             
             // Self-heal and install custom system wrappers (pgrep, sysctl, systemctl, lsblk, etc.)
-            installCustomWrapperScripts(distroDir)
+            removeLegacyMockWrappers(distroDir)
             
             log("Robust filesystem setup and check completed successfully.")
         } catch (e: Exception) {
@@ -1814,12 +2088,22 @@ object LinuxTerminalSimulator {
             val targetCanonical = targetFile.canonicalFile
             val relativePath = parentCanonical.toPath().relativize(targetCanonical.toPath()).toString()
             
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                Files.createSymbolicLink(symlinkFile.toPath(), Paths.get(relativePath))
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                    android.system.Os.symlink(relativePath, symlinkFile.absolutePath)
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    Files.createSymbolicLink(symlinkFile.toPath(), Paths.get(relativePath))
+                }
                 log("Created self-healing symlink: ${symlinkFile.absolutePath} -> $relativePath")
-            } else {
-                Runtime.getRuntime().exec(arrayOf("ln", "-s", relativePath, symlinkFile.absolutePath)).waitFor()
-                log("Created self-healing symlink via CLI: ${symlinkFile.absolutePath} -> $relativePath")
+            } catch (e: Exception) {
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        Files.createSymbolicLink(symlinkFile.toPath(), Paths.get(relativePath))
+                        log("Created self-healing symlink (NIO): ${symlinkFile.absolutePath} -> $relativePath")
+                    }
+                } catch (ex: Exception) {
+                    log("Failed to create symlink ${symlinkFile.absolutePath}: ${ex.message}")
+                }
             }
         } catch (e: Exception) {
             log("Failed to create symlink ${symlinkFile.absolutePath}: ${e.message}")
@@ -1968,9 +2252,11 @@ object LinuxTerminalSimulator {
         val prootCmdList = mutableListOf<String>()
         prootCmdList.add(pPath)
         prootCmdList.add("-r")
-        prootCmdList.add(distroDir.absolutePath)
+        prootCmdList.add((try { distroDir.canonicalFile.absolutePath } catch (e: Exception) { distroDir.absolutePath }))
         prootCmdList.add("-0")
-        prootCmdList.add("--link2symlink") // Solves Issue 2: dpkg status-old permission issues
+        prootCmdList.add("--link2symlink")
+        prootCmdList.add("--sysvipc")
+        prootCmdList.add("--kill-on-exit")
         prootCmdList.add("-w")
         prootCmdList.add("/root")
         
@@ -1984,6 +2270,7 @@ object LinuxTerminalSimulator {
 
         try {
             val builder = ProcessBuilder(prootCmdList).directory(context.filesDir)
+            builder.redirectErrorStream(true)
             val prootTmpDir = File(File(context.cacheDir, "proot_tmp"), "install_" + java.util.UUID.randomUUID().toString()).apply {
                 mkdirs()
                 setWritable(true, false)
@@ -2014,7 +2301,7 @@ object LinuxTerminalSimulator {
 
     fun removeDistroDirect(distroAlias: String) {
         val context = applicationContext ?: return
-        val distroDir = File(File(context.filesDir, "proot-distros"), distroAlias)
+        val distroDir = resolveDistroDir(distroAlias)
         if (distroDir.exists()) {
             distroDir.deleteRecursively()
             terminalLines.add("Removed $distroAlias.")
@@ -2026,11 +2313,12 @@ object LinuxTerminalSimulator {
 
     fun loginDistroDirect(distroAlias: String) {
         val context = applicationContext ?: return
-        val distroDir = File(File(context.filesDir, "proot-distros"), distroAlias)
-        if (!distroDir.exists()) {
-            terminalLines.add("Distribution $distroAlias not installed.")
+        if (!isDistroFullyInstalled(distroAlias)) {
+            terminalLines.add("Distribution '$distroAlias' is not installed or incomplete.")
+            terminalLines.add("Run 'proot-distro install $distroAlias' or use the PRoot Distros tab first.")
             return
         }
+        val distroDir = resolveDistroDir(distroAlias)
         
         ensureRobustFilesystem(distroDir)
         
@@ -2049,14 +2337,14 @@ object LinuxTerminalSimulator {
         hostsConf.writeText("127.0.0.1 localhost\n::1 localhost\n")
         
         if (prootPath == null) {
+            val nativeProotFile = File(context.applicationInfo.nativeLibraryDir, "libproot.so")
             val libDir = File(context.filesDir, "lib")
             val prootFile = File(libDir, "libproot.so")
-            val nativeProotFile = File(context.applicationInfo.nativeLibraryDir, "libproot.so")
-            if (isValidElf(prootFile)) {
+            if (isValidElf(nativeProotFile)) {
+                prootPath = nativeProotFile.absolutePath
+            } else if (isValidElf(prootFile)) {
                 prootFile.setExecutable(true, false)
                 prootPath = prootFile.absolutePath
-            } else if (isValidElf(nativeProotFile)) {
-                prootPath = nativeProotFile.absolutePath
             } else {
                 extractLibFromApk(context, "libproot.so", prootFile)
                 if (isValidElf(prootFile)) {
@@ -2174,8 +2462,8 @@ object LinuxTerminalSimulator {
         if (isDesktopActive && isBackground && !trimmed.startsWith("which ") && !trimmed.contains("scrot ") && !trimmed.contains("ps aux")) {
             val distro = targetDistro ?: _activeDistro.value ?: "ubuntu"
             val context = applicationContext
-            if (context != null) {
-                val distroDir = File(File(context.filesDir, "proot-distros"), distro)
+            if (context != null && isDistroFullyInstalled(distro)) {
+                val distroDir = resolveDistroDir(distro)
                 val pipeFile = File(distroDir, "root/cmd_pipe")
                 val cleanCmd = if (trimmed.endsWith("&")) trimmed.substring(0, trimmed.length - 1).trim() else trimmed
                 
@@ -2203,39 +2491,23 @@ object LinuxTerminalSimulator {
                                 val prootCmdList = mutableListOf<String>()
                                 prootCmdList.add(pPath)
                                 prootCmdList.add("-r")
-                                prootCmdList.add(distroDir.absolutePath)
+                                prootCmdList.add((try { distroDir.canonicalFile.absolutePath } catch (e: Exception) { distroDir.absolutePath }))
                                 prootCmdList.add("-0")
                                 prootCmdList.add("--link2symlink")
+                                prootCmdList.add("--sysvipc")
+                                prootCmdList.add("--kill-on-exit")
                                 prootCmdList.add("-w")
                                 prootCmdList.add("/root")
                                 
                                 appendStandardPRootBindings(prootCmdList, context, distroDir)
-                                
-                                val libDir = File(context.filesDir, "lib").absolutePath
-                                val nativeLibDir = context.applicationInfo.nativeLibraryDir
                                 
                                 prootCmdList.addAll(listOf(
                                     "/bin/sh", "-c", "unset LD_LIBRARY_PATH; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH HOME=/root USER=root SHELL=/bin/bash TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8 DEBIAN_FRONTEND=noninteractive DISPLAY=:99 TMPDIR=/tmp TEMP=/tmp TMP=/tmp; $cleanCmd >> /root/background_cmds.log 2>&1"
                                 ))
                                 
                                 val builder = ProcessBuilder(prootCmdList).directory(context.filesDir)
-                                builder.environment()["LD_LIBRARY_PATH"] = "$libDir:$nativeLibDir"
-                                builder.environment()["PATH"] = "$libDir:$nativeLibDir:/system/bin:/system/xbin"
-                                
-                                val loaderCandidate1 = File(context.filesDir, "lib/libproot-loader.so")
-                                val loaderCandidate2 = File(context.applicationInfo.nativeLibraryDir, "libproot-loader.so")
-                                val loaderFile = if (loaderCandidate1.exists()) loaderCandidate1 else if (loaderCandidate2.exists()) loaderCandidate2 else null
-                                if (loaderFile != null) {
-                                    builder.environment()["PROOT_LOADER"] = loaderFile.absolutePath
-                                }
-                                
                                 val prootTmpDir = File(context.cacheDir, "proot_tmp").apply { mkdirs() }
-                                builder.environment()["PROOT_TMP_DIR"] = prootTmpDir.absolutePath
-                                builder.environment()["PROOT_TMPDIR"] = prootTmpDir.absolutePath
-                                builder.environment()["TMPDIR"] = prootTmpDir.absolutePath
-                                builder.environment()["TEMP"] = prootTmpDir.absolutePath
-                                builder.environment()["TMP"] = prootTmpDir.absolutePath
-                                
+                                applyStandardPRootEnvironment(builder, context, prootTmpDir)
                                 builder.start()
                             }
                         }
@@ -2363,7 +2635,7 @@ object LinuxTerminalSimulator {
             val distro = _activeDistro.value
             if (distro != null) {
                 val context = applicationContext ?: return ""
-                val distroDir = File(File(context.filesDir, "proot-distros"), distro)
+                val distroDir = resolveDistroDir(distro)
                 
                 // Determine absolute guest path
                 val absoluteGuestPath = if (dir.startsWith("/")) {
@@ -2437,9 +2709,10 @@ object LinuxTerminalSimulator {
         val distro = _activeDistro.value
         val result = withContext(Dispatchers.IO) {
             try {
-                val processBuilder = if (distro != null && prootPath != null) {
+                val isDistroReady = distro != null && prootPath != null && isDistroFullyInstalled(distro)
+                val processBuilder = if (isDistroReady) {
                     val context = applicationContext ?: return@withContext "Error: Terminal not initialized."
-                    val distroDir = File(File(context.filesDir, "proot-distros"), distro)
+                    val distroDir = resolveDistroDir(distro!!)
                     
                     // Architecture match validation & Self-healing re-install
                     val prootIsArm = prootPath?.let { isBinaryArm(File(it)) } ?: false
@@ -2473,6 +2746,7 @@ object LinuxTerminalSimulator {
                     
                     // Lightweight self-healing for critical package manager paths before every command execution
                     repairDpkgDatabase(distroDir)
+                    removeLegacyMockWrappers(distroDir)
                     
                     // PRoot execution string: proot -r <rootfs> -0 -w <dir> -b /dev -b /sys -b /proc /bin/sh -c "command"
                     ensureBinariesAndShellsExecutable(distroDir)
@@ -2480,9 +2754,11 @@ object LinuxTerminalSimulator {
                     val prootCmdList = mutableListOf<String>()
                     prootCmdList.add(prootPath!!)
                     prootCmdList.add("-r")
-                    prootCmdList.add(distroDir.absolutePath)
+                    prootCmdList.add((try { distroDir.canonicalFile.absolutePath } catch (e: Exception) { distroDir.absolutePath }))
                     prootCmdList.add("-0")
-                    prootCmdList.add("--link2symlink") // Solves Issue 2: dpkg status-old permission issues
+                    prootCmdList.add("--link2symlink")
+                    prootCmdList.add("--sysvipc")
+                    prootCmdList.add("--kill-on-exit")
                     // Check if guest directory exists inside distro rootfs
                     var guestDir = _guestDirectory.value
                     val targetDirInDistro = File(distroDir, guestDir.removePrefix("/"))
@@ -2494,13 +2770,7 @@ object LinuxTerminalSimulator {
                     
                     appendStandardPRootBindings(prootCmdList, context, distroDir)
 
-                    // Auto append -c 4 to ping command if ping is run without count option to avoid infinite hanging
                     var cmdToExecute = trimmed
-                    if (cmdToExecute.startsWith("ping ") && !cmdToExecute.contains(" -c")) {
-                        cmdToExecute = cmdToExecute.replaceFirst("ping ", "ping -c 4 ")
-                    } else if (cmdToExecute == "ping") {
-                        cmdToExecute = "ping -c 4 127.0.0.1"
-                    }
 
                     val libDir = File(context.filesDir, "lib").absolutePath
                     val nativeLibDir = context.applicationInfo.nativeLibraryDir
@@ -2889,7 +3159,7 @@ object LinuxTerminalSimulator {
 
         val loaderCandidate1 = File(context.filesDir, "lib/libproot-loader.so")
         val loaderCandidate2 = File(context.applicationInfo.nativeLibraryDir, "libproot-loader.so")
-        val loaderFile = if (loaderCandidate1.exists()) loaderCandidate1 else if (loaderCandidate2.exists()) loaderCandidate2 else null
+        val loaderFile = if (loaderCandidate2.exists() && isValidElf(loaderCandidate2)) loaderCandidate2 else if (loaderCandidate1.exists() && isValidElf(loaderCandidate1)) loaderCandidate1 else null
         if (loaderFile != null) {
             try {
                 loaderFile.setExecutable(true, false)
@@ -2900,7 +3170,7 @@ object LinuxTerminalSimulator {
 
         val loader32Candidate1 = File(context.filesDir, "lib/libproot-loader32.so")
         val loader32Candidate2 = File(context.applicationInfo.nativeLibraryDir, "libproot-loader32.so")
-        val loader32File = if (loader32Candidate1.exists()) loader32Candidate1 else if (loader32Candidate2.exists()) loader32Candidate2 else null
+        val loader32File = if (loader32Candidate2.exists() && isValidElf(loader32Candidate2)) loader32Candidate2 else if (loader32Candidate1.exists() && isValidElf(loader32Candidate1)) loader32Candidate1 else null
         if (loader32File != null) {
             try {
                 loader32File.setExecutable(true, false)
@@ -2916,6 +3186,7 @@ object LinuxTerminalSimulator {
         env["TMP"] = prootTmpDir.absolutePath
         env["PROOT_VERBOSE"] = "0"
         env["PROOT_NO_SECCOMP"] = "1"
+        env["PROOT_FORCE_NO_SECCOMP"] = "1"
         env["PROOT_NO_SHMEM_WARNING"] = "1"
         env["PROOT_NO_ALIGNMENT_CHECK"] = "1"
         env["PROOT_KILL_ON_EXIT"] = "1"
@@ -2927,11 +3198,14 @@ object LinuxTerminalSimulator {
     }
 
     private fun appendStandardPRootBindings(prootCmdList: MutableList<String>, context: Context, distroDir: File) {
+        val canonicalDistroDir = try { distroDir.canonicalFile } catch (e: Exception) { distroDir.absoluteFile }
+
         // Bind fake dev directory
         val fakeDevDir = File(context.cacheDir, "fake_dev")
         if (fakeDevDir.exists()) {
+            val devPath = try { fakeDevDir.canonicalFile.absolutePath } catch (e: Exception) { fakeDevDir.absolutePath }
             prootCmdList.add("-b")
-            prootCmdList.add("${fakeDevDir.absolutePath}:/dev")
+            prootCmdList.add("$devPath:/dev")
             
             // Bind host individual safe devices onto fake dev directory
             val hostDevices = listOf("null", "zero", "random", "urandom", "ptmx")
@@ -2945,6 +3219,22 @@ object LinuxTerminalSimulator {
                 prootCmdList.add("-b")
                 prootCmdList.add("/dev/pts:/dev/pts")
             }
+            if (File("/proc/self/fd").exists()) {
+                prootCmdList.add("-b")
+                prootCmdList.add("/proc/self/fd:/dev/fd")
+            }
+            if (File("/proc/self/fd/0").exists()) {
+                prootCmdList.add("-b")
+                prootCmdList.add("/proc/self/fd/0:/dev/stdin")
+            }
+            if (File("/proc/self/fd/1").exists()) {
+                prootCmdList.add("-b")
+                prootCmdList.add("/proc/self/fd/1:/dev/stdout")
+            }
+            if (File("/proc/self/fd/2").exists()) {
+                prootCmdList.add("-b")
+                prootCmdList.add("/proc/self/fd/2:/dev/stderr")
+            }
         } else {
             if (File("/dev").exists()) {
                 prootCmdList.add("-b")
@@ -2955,8 +3245,9 @@ object LinuxTerminalSimulator {
         // Bind fake sys directory
         val fakeSysDir = File(context.cacheDir, "fake_sys")
         if (fakeSysDir.exists()) {
+            val sysPath = try { fakeSysDir.canonicalFile.absolutePath } catch (e: Exception) { fakeSysDir.absolutePath }
             prootCmdList.add("-b")
-            prootCmdList.add("${fakeSysDir.absolutePath}:/sys")
+            prootCmdList.add("$sysPath:/sys")
         } else {
             if (File("/sys").exists()) {
                 prootCmdList.add("-b")
@@ -2974,45 +3265,53 @@ object LinuxTerminalSimulator {
         try {
             val fakeProcStat = File(context.cacheDir, "fake_proc_stat")
             if (fakeProcStat.exists()) {
+                val pPath = try { fakeProcStat.canonicalFile.absolutePath } catch (e: Exception) { fakeProcStat.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcStat.absolutePath}:/proc/stat")
+                prootCmdList.add("$pPath:/proc/stat")
             }
             val fakeProcVersion = File(context.cacheDir, "fake_proc_version")
             if (fakeProcVersion.exists()) {
+                val pPath = try { fakeProcVersion.canonicalFile.absolutePath } catch (e: Exception) { fakeProcVersion.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcVersion.absolutePath}:/proc/version")
+                prootCmdList.add("$pPath:/proc/version")
             }
             val fakeProcUptime = File(context.cacheDir, "fake_proc_uptime")
             if (fakeProcUptime.exists()) {
+                val pPath = try { fakeProcUptime.canonicalFile.absolutePath } catch (e: Exception) { fakeProcUptime.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcUptime.absolutePath}:/proc/uptime")
+                prootCmdList.add("$pPath:/proc/uptime")
             }
             val fakeProcLoadavg = File(context.cacheDir, "fake_proc_loadavg")
             if (fakeProcLoadavg.exists()) {
+                val pPath = try { fakeProcLoadavg.canonicalFile.absolutePath } catch (e: Exception) { fakeProcLoadavg.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcLoadavg.absolutePath}:/proc/loadavg")
+                prootCmdList.add("$pPath:/proc/loadavg")
             }
             val fakeProcNetDir = File(context.cacheDir, "fake_proc_net")
             if (fakeProcNetDir.exists()) {
+                val pPath = try { fakeProcNetDir.canonicalFile.absolutePath } catch (e: Exception) { fakeProcNetDir.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcNetDir.absolutePath}:/proc/net")
+                prootCmdList.add("$pPath:/proc/net")
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcNetDir.absolutePath}:/proc/self/net")
+                prootCmdList.add("$pPath:/proc/self/net")
             }
             val fakeProcSelfStatus = File(context.cacheDir, "fake_proc_self_status")
             if (fakeProcSelfStatus.exists()) {
+                val pPath = try { fakeProcSelfStatus.canonicalFile.absolutePath } catch (e: Exception) { fakeProcSelfStatus.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcSelfStatus.absolutePath}:/proc/self/status")
+                prootCmdList.add("$pPath:/proc/self/status")
             }
             val fakeProcSelfCmdline = File(context.cacheDir, "fake_proc_self_cmdline")
             if (fakeProcSelfCmdline.exists()) {
+                val pPath = try { fakeProcSelfCmdline.canonicalFile.absolutePath } catch (e: Exception) { fakeProcSelfCmdline.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcSelfCmdline.absolutePath}:/proc/self/cmdline")
+                prootCmdList.add("$pPath:/proc/self/cmdline")
             }
             val fakeProcSysDir = File(context.cacheDir, "fake_proc_sys")
             if (fakeProcSysDir.exists()) {
+                val pPath = try { fakeProcSysDir.canonicalFile.absolutePath } catch (e: Exception) { fakeProcSysDir.absolutePath }
                 prootCmdList.add("-b")
-                prootCmdList.add("${fakeProcSysDir.absolutePath}:/proc/sys")
+                prootCmdList.add("$pPath:/proc/sys")
             }
         } catch (e: Exception) {}
         
@@ -3022,697 +3321,73 @@ object LinuxTerminalSimulator {
             hostShmDir.setWritable(true, false)
             hostShmDir.setReadable(true, false)
             hostShmDir.setExecutable(true, false)
-            val guestShmDir = File(distroDir, "dev/shm").apply { mkdirs() }
+            val canonicalHostShm = try { hostShmDir.canonicalFile.absolutePath } catch (e: Exception) { hostShmDir.absolutePath }
+            val guestShmDir = File(canonicalDistroDir, "dev/shm").apply { mkdirs() }
             guestShmDir.setWritable(true, false)
             prootCmdList.add("-b")
-            prootCmdList.add("${hostShmDir.absolutePath}:/dev/shm")
+            prootCmdList.add("$canonicalHostShm:/dev/shm")
         } catch (e: Exception) {}
 
-        // Bind extra mounts
+        // Bind extra mounts with canonical host target & directory check
         val extraMounts = listOf("/system", "/sdcard", "/storage")
         for (m in extraMounts) {
             val hostFile = File(m)
-            val guestFile = File(distroDir, m.removePrefix("/"))
-            if (hostFile.exists() && guestFile.exists()) {
-                prootCmdList.add("-b")
-                prootCmdList.add(m)
+            if (hostFile.exists()) {
+                val canonicalHost = try { hostFile.canonicalFile } catch (e: Exception) { hostFile }
+                val guestFile = File(canonicalDistroDir, m.removePrefix("/"))
+                if (guestFile.exists() && guestFile.isDirectory) {
+                    prootCmdList.add("-b")
+                    prootCmdList.add("${canonicalHost.absolutePath}:$m")
+                }
             }
         }
     }
 
-    private fun installCustomWrapperScripts(distroDir: File) {
+    fun removeLegacyMockWrappers(distroDir: File) {
         try {
-            val localBinDir = File(distroDir, "usr/local/bin")
-            val usrBinDir = File(distroDir, "usr/bin")
-            val binDir = File(distroDir, "bin")
-            val usrSbinDir = File(distroDir, "usr/sbin")
-            val sbinDir = File(distroDir, "sbin")
-            localBinDir.mkdirs()
-            usrBinDir.mkdirs()
-            binDir.mkdirs()
-            usrSbinDir.mkdirs()
-            sbinDir.mkdirs()
-
-            fun isOurWrapper(file: File): Boolean {
-                if (!file.exists()) return false
-                if (java.nio.file.Files.isSymbolicLink(file.toPath())) return true
-                try {
-                    if (file.length() > 10000) return false
-                    val text = file.readText()
-                    return text.contains("Custom") && text.contains("wrapper") && text.contains("Zhypix")
-                } catch (e: Exception) {
-                    return false
-                }
-            }
-
-            fun writeWrapper(name: String, content: String, localOnly: Boolean = true) {
-                val targets = if (localOnly) {
-                    listOf(File(localBinDir, name))
-                } else {
-                    listOf(
-                        File(localBinDir, name),
-                        File(usrBinDir, name),
-                        File(binDir, name),
-                        File(usrSbinDir, name),
-                        File(sbinDir, name)
-                    )
-                }
-                
-                if (localOnly) {
-                    val otherPaths = listOf(
-                        File(usrBinDir, name),
-                        File(binDir, name),
-                        File(usrSbinDir, name),
-                        File(sbinDir, name)
-                    )
-                    otherPaths.forEach { file ->
-                        try {
-                            if (isOurWrapper(file)) {
-                                file.delete()
-                            }
-                        } catch (e: Exception) {}
-                    }
-                }
-
-                targets.forEach { file ->
+            val checkDirs = listOf(
+                File(distroDir, "usr/local/bin"),
+                File(distroDir, "usr/bin"),
+                File(distroDir, "bin"),
+                File(distroDir, "usr/sbin"),
+                File(distroDir, "sbin")
+            )
+            val mockTargetNames = setOf(
+                "vim", "vi", "nano", "ping", "curl", "wget", "python", "python3",
+                "java", "javac", "systemctl", "service", "sysctl", "lsblk",
+                "neofetch", "crontab", "strace", "lsof", "capsh", "xterm",
+                "cat", "grep", "sudo", "pgrep", "pkill", "ip"
+            )
+            for (dir in checkDirs) {
+                if (!dir.exists() || !dir.isDirectory) continue
+                dir.listFiles()?.forEach { file ->
                     try {
-                        if (!file.exists() || isOurWrapper(file)) {
-                            if (file.exists() || java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                        if (file.isFile && !java.nio.file.Files.isSymbolicLink(file.toPath()) && file.length() < 50000) {
+                            val name = file.name.lowercase(Locale.ROOT)
+                            val t = try { file.readText() } catch (e: Exception) { "" }
+                            val lowerText = t.lowercase(Locale.ROOT)
+                            val isMockContent = lowerText.contains("zhypix") ||
+                                    lowerText.contains("sandbox") ||
+                                    lowerText.contains("mock") ||
+                                    lowerText.contains("custom") ||
+                                    lowerText.contains("wrapper") ||
+                                    lowerText.contains("fake_status") ||
+                                    lowerText.contains("zhypix-container")
+
+                            val isUsrLocalBin = dir.name == "bin" && dir.parentFile?.name == "local"
+                            if (isMockContent || (isUsrLocalBin && mockTargetNames.contains(name) && t.startsWith("#!/"))) {
                                 file.delete()
+                                android.util.Log.d("Zhypix", "Cleaned legacy mock wrapper: ${file.absolutePath}")
                             }
-                            file.parentFile?.mkdirs()
-                            file.writeText(content.trimIndent())
-                            file.setExecutable(true, false)
-                            file.setReadable(true, false)
                         }
-                    } catch (e: Exception) {
-                        android.util.Log.e("Zhypix", "Failed to write wrapper $name to ${file.absolutePath}", e)
-                    }
+                    } catch (e: Exception) {}
                 }
             }
-
-            // 1. pgrep (solves M1: pgrep erratically, supports -la and -l options)
-            writeWrapper("pgrep", """
-                #!/bin/sh
-                # Custom pgrep wrapper for Zhypix
-                mock_processes="
-                1 init /sbin/init
-                124 bash /bin/bash
-                456 cron /usr/sbin/cron -f
-                23918 Xvfb Xvfb :99 -screen 0 1280x720x24 -ac
-                "
-
-                show_cmdline=0
-                show_comm=0
-                for arg in "${'$'}@"; do
-                    case "${'$'}arg" in
-                        -la|-al|-a) show_cmdline=1 ;;
-                        -l) show_comm=1 ;;
-                    esac
-                done
-
-                pattern=""
-                for arg in "${'$'}@"; do
-                    case "${'$'}arg" in
-                        -*) ;;
-                        *) pattern="${'$'}arg" ;;
-                    esac
-                done
-
-                if [ -z "${'$'}pattern" ]; then
-                    pattern="."
-                fi
-
-                found=0
-                echo "${'$'}mock_processes" | while read -r pid comm cmdline; do
-                    [ -z "${'$'}pid" ] && continue
-                    if echo "${'$'}comm ${'$'}cmdline" | grep -qi "${'$'}pattern"; then
-                        if [ "${'$'}show_cmdline" -eq 1 ]; then
-                            echo "${'$'}pid ${'$'}cmdline"
-                        elif [ "${'$'}show_comm" -eq 1 ]; then
-                            echo "${'$'}pid ${'$'}comm"
-                        else
-                            echo "${'$'}pid"
-                        fi
-                        found=1
-                    fi
-                done
-
-                if [ "${'$'}found" -ne 1 ]; then
-                    if [ -f /usr/bin/pgrep ] && [ "/usr/bin/pgrep" != "${'$'}0" ] && ! grep -q "Custom pgrep" /usr/bin/pgrep 2>/dev/null; then
-                        exec /usr/bin/pgrep "${'$'}@"
-                    elif [ -f /bin/pgrep ] && [ "/bin/pgrep" != "${'$'}0" ] && ! grep -q "Custom pgrep" /bin/grep 2>/dev/null; then
-                        exec /bin/pgrep "${'$'}@"
-                    fi
-                fi
-            """)
-
-            // 2. sysctl (solves Issue H3: sysctl permission denied)
-            writeWrapper("sysctl", """
-                #!/bin/sh
-                # Custom sysctl wrapper for Zhypix
-                if [ "${'$'}1" = "-a" ] || [ -z "${'$'}1" ]; then
-                    echo "kernel.hostname = zhypix-container"
-                    echo "kernel.osrelease = 5.15.194-android13-zhypix"
-                    echo "vm.max_map_count = 262144"
-                    exit 0
-                fi
-                case "${'$'}1" in
-                    *kernel.hostname*) echo "kernel.hostname = zhypix-container"; exit 0 ;;
-                    *max_map_count*) echo "vm.max_map_count = 262144"; exit 0 ;;
-                esac
-                if [ -f /usr/bin/sysctl ] && [ "/usr/bin/sysctl" != "${'$'}0" ] && ! grep -q "Custom sysctl" /usr/bin/sysctl 2>/dev/null; then
-                    exec /usr/bin/sysctl "${'$'}@"
-                elif [ -f /sbin/sysctl ] && [ "/sbin/sysctl" != "${'$'}0" ] && ! grep -q "Custom sysctl" /sbin/sysctl 2>/dev/null; then
-                    exec /sbin/sysctl "${'$'}@"
-                else
-                    echo "${'$'}1 = 0"
-                fi
-            """)
-
-            // 3. systemctl (solves Issue H7: systemctl)
-            writeWrapper("systemctl", """
-                #!/bin/sh
-                # Custom systemctl wrapper for Zhypix
-                if [ "${'$'}#" -eq 0 ]; then
-                    echo "UNIT                     LOAD   ACTIVE SUB     DESCRIPTION"
-                    echo "Xvfb.service             loaded active running Xvfb Virtual Display"
-                    echo "x11-common.service       loaded active running X11 Common Init"
-                    echo "cron.service             loaded active running Regular Background Cron Daemon"
-                    exit 0
-                fi
-                case "${'$'}1" in
-                    status)
-                        echo "* "${'$'}2".service - Zhypix Container Service"
-                        echo "     Loaded: loaded"
-                        echo "     Active: active (running) since Fri 2026-07-31 00:00:00 UTC"
-                        echo "   Main PID: 1234 (bash)"
-                        echo "      Tasks: 1"
-                        echo "     CGroup: /system.slice/"${'$'}2".service"
-                        exit 0
-                        ;;
-                    start|stop|restart|enable|disable)
-                        echo "Synchronizing state of "${'$'}2".service with SysV service script with /lib/systemd/systemd-sysv-install."
-                        exit 0
-                        ;;
-                esac
-                if [ -f /usr/bin/systemctl ] && [ "/usr/bin/systemctl" != "${'$'}0" ] && ! grep -q "Custom systemctl" /usr/bin/systemctl 2>/dev/null; then
-                    exec /usr/bin/systemctl "${'$'}@"
-                elif [ -f /bin/systemctl ] && [ "/bin/systemctl" != "${'$'}0" ] && ! grep -q "Custom systemctl" /bin/systemctl 2>/dev/null; then
-                    exec /bin/systemctl "${'$'}@"
-                else
-                    echo "systemctl: unrecognized option or command"
-                fi
-            """)
-
-            // 4. service (solves Issue H6: Services)
-            writeWrapper("service", """
-                #!/bin/sh
-                # Custom service wrapper for Zhypix
-                if [ "${'$'}2" = "status" ] || [ "${'$'}1" = "--status-all" ]; then
-                    echo " * Xvfb is running"
-                    echo " * x11-common is running"
-                    echo " * cron is running"
-                    exit 0
-                fi
-                if [ -f /usr/sbin/service ] && [ "/usr/sbin/service" != "${'$'}0" ] && ! grep -q "Custom service" /usr/sbin/service 2>/dev/null; then
-                    exec /usr/sbin/service "${'$'}@"
-                elif [ -f /sbin/service ] && [ "/sbin/service" != "${'$'}0" ] && ! grep -q "Custom service" /sbin/service 2>/dev/null; then
-                    exec /sbin/service "${'$'}@"
-                else
-                    echo "Service "${'$'}1" "${'$'}2" complete."
-                fi
-            """)
-
-            // 5. lsblk (solves Issue H4: lsblk permission denied)
-            writeWrapper("lsblk", """
-                #!/bin/sh
-                # Custom lsblk wrapper for Zhypix
-                echo "NAME   MAJ:MIN RM  SIZE RO TYPE MOUNTPOINTS"
-                echo "loop0    7:0    0   10G  0 loop /"
-                if [ -f /usr/bin/lsblk ] && [ "/usr/bin/lsblk" != "${'$'}0" ] && ! grep -q "Custom lsblk" /usr/bin/lsblk 2>/dev/null; then
-                    exec /usr/bin/lsblk "${'$'}@"
-                elif [ -f /bin/lsblk ] && [ "/bin/lsblk" != "${'$'}0" ] && ! grep -q "Custom lsblk" /bin/lsblk 2>/dev/null; then
-                    exec /bin/lsblk "${'$'}@"
-                fi
-            """)
-
-            // 6. mount (solves mount permission issues)
-            writeWrapper("mount", """
-                #!/bin/sh
-                # Custom mount wrapper for Zhypix
-                if [ "${'$'}#" -eq 0 ]; then
-                    echo "/dev/loop0 on / type ext4 (rw,relatime)"
-                    echo "proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)"
-                    echo "sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)"
-                    echo "tmpfs on /dev/shm type tmpfs (rw,nosuid,nodev,noexec,relatime)"
-                    echo "devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime)"
-                    exit 0
-                fi
-                if [ -f /usr/bin/mount ] && [ "/usr/bin/mount" != "${'$'}0" ] && ! grep -q "Custom mount" /usr/bin/mount 2>/dev/null; then
-                    exec /usr/bin/mount "${'$'}@"
-                elif [ -f /bin/mount ] && [ "/bin/mount" != "${'$'}0" ] && ! grep -q "Custom mount" /bin/mount 2>/dev/null; then
-                    exec /bin/mount "${'$'}@"
-                fi
-            """)
-
-            // 7. curl (solves Issue C1 & F1: curl)
-            writeWrapper("curl", """
-                #!/bin/sh
-                # Custom curl wrapper for Zhypix
-                if [ -f /usr/bin/curl ] && [ "/usr/bin/curl" != "${'$'}0" ] && ! grep -q "Custom curl" /usr/bin/curl 2>/dev/null; then
-                    exec /usr/bin/curl "${'$'}@"
-                elif [ -f /bin/curl ] && [ "/bin/curl" != "${'$'}0" ] && ! grep -q "Custom curl" /bin/curl 2>/dev/null; then
-                    exec /bin/curl "${'$'}@"
-                else
-                    echo "Mock curl wrapper: Downloading in sandboxed user-space..."
-                    echo '{"status": "success", "message": "Zhypix sandboxed response", "online": true}'
-                fi
-            """)
-
-            // 8. wget (solves Issue C1 & F1: wget)
-            writeWrapper("wget", """
-                #!/bin/sh
-                # Custom wget wrapper for Zhypix
-                if [ -f /usr/bin/wget ] && [ "/usr/bin/wget" != "${'$'}0" ] && ! grep -q "Custom wget" /usr/bin/wget 2>/dev/null; then
-                    exec /usr/bin/wget "${'$'}@"
-                elif [ -f /bin/wget ] && [ "/bin/wget" != "${'$'}0" ] && ! grep -q "Custom wget" /bin/wget 2>/dev/null; then
-                    exec /bin/wget "${'$'}@"
-                else
-                    echo "Mock wget wrapper: Saving to index.html..."
-                    echo "HTTP request sent, awaiting response... 200 OK"
-                    echo "Length: 1024 (1K) [text/html]"
-                    echo "Saving to: 'index.html'"
-                    echo '<html><body><h1>Zhypix Sandboxed Page</h1></body></html>' > index.html
-                fi
-            """)
-
-            // 9. ping (solves Issue C1 & F1: ping)
-            writeWrapper("ping", """
-                #!/bin/sh
-                # Custom ping wrapper for Zhypix
-                if [ -f /usr/bin/ping ] && [ "/usr/bin/ping" != "${'$'}0" ] && ! grep -q "Custom ping" /usr/bin/ping 2>/dev/null; then
-                    exec /usr/bin/ping "${'$'}@"
-                elif [ -f /bin/ping ] && [ "/bin/ping" != "${'$'}0" ] && ! grep -q "Custom ping" /bin/ping 2>/dev/null; then
-                    exec /bin/ping "${'$'}@"
-                else
-                    target="${'$'}{1:-google.com}"
-                    while [ "${'$'}{1#-}" != "${'$'}1" ]; do
-                        shift
-                    done
-                    target="${'$'}{1:-google.com}"
-                    echo "PING ${'$'}target (142.250.190.46) 56(84) bytes of data."
-                    for i in 1 2 3 4; do
-                        echo "64 bytes from 142.250.190.46: icmp_seq=${'$'}i ttl=115 time=14.2 ms"
-                        sleep 0.5
-                    done
-                    echo "--- ${'$'}target ping statistics ---"
-                    echo "4 packets transmitted, 4 received, 0% packet loss, time 1502ms"
-                    echo "rtt min/avg/max/mdev = 12.1/14.2/16.5/1.42 ms"
-                fi
-            """)
-
-            // 10. python3 (solves Issue C1 & F1: python3)
-            writeWrapper("python3", """
-                #!/bin/sh
-                # Custom python3 wrapper for Zhypix
-                if [ -f /usr/bin/python3 ] && [ "/usr/bin/python3" != "${'$'}0" ] && ! grep -q "Custom python3" /usr/bin/python3 2>/dev/null; then
-                    exec /usr/bin/python3 "${'$'}@"
-                elif [ -f /bin/python3 ] && [ "/bin/python3" != "${'$'}0" ] && ! grep -q "Custom python3" /bin/python3 2>/dev/null; then
-                    exec /bin/python3 "${'$'}@"
-                else
-                    echo "Python 3.10.12 (Zhypix Sandbox Mock Console)"
-                    echo "Type 'help', 'copyright', 'credits' or 'license' for more information."
-                    echo ">>> "
-                fi
-            """)
-
-            // 11. python (solves python symlinks)
-            writeWrapper("python", """
-                #!/bin/sh
-                # Custom python wrapper for Zhypix
-                if [ -f /usr/bin/python ] && [ "/usr/bin/python" != "${'$'}0" ] && ! grep -q "Custom python wrapper" /usr/bin/python 2>/dev/null; then
-                    exec /usr/bin/python "${'$'}@"
-                elif [ -f /bin/python ] && [ "/bin/python" != "${'$'}0" ] && ! grep -q "Custom python wrapper" /bin/python 2>/dev/null; then
-                    exec /bin/python "${'$'}@"
-                else
-                    python3 "${'$'}@"
-                fi
-            """)
-
-            // 12. nano (solves Issue C1 & F1: nano)
-            writeWrapper("nano", """
-                #!/bin/sh
-                # Custom nano wrapper for Zhypix
-                if [ -f /usr/bin/nano ] && [ "/usr/bin/nano" != "${'$'}0" ] && ! grep -q "Custom nano" /usr/bin/nano 2>/dev/null; then
-                    exec /usr/bin/nano "${'$'}@"
-                elif [ -f /bin/nano ] && [ "/bin/nano" != "${'$'}0" ] && ! grep -q "Custom nano" /bin/nano 2>/dev/null; then
-                    exec /bin/nano "${'$'}@"
-                else
-                    echo "=== Zhypix Nano Sandbox Editor ==="
-                    if [ -n "${'$'}1" ]; then
-                        echo "Editing file: ${'$'}1"
-                        if [ -f "${'$'}1" ]; then
-                            echo "Current Content:"
-                            cat "${'$'}1"
-                        fi
-                        echo "Enter new content (Type EOF on a single line to save):"
-                        rm -f "${'$'}1"
-                        while read -r line; do
-                            if [ "${'$'}line" = "EOF" ]; then
-                                break
-                            fi
-                            echo "${'$'}line" >> "${'$'}1"
-                        done
-                        echo "File saved successfully!"
-                    else
-                        echo "Usage: nano <filename>"
-                    fi
-                fi
-            """)
-
-            // 13. vim (solves vim sandbox)
-            writeWrapper("vim", """
-                #!/bin/sh
-                # Custom vim wrapper for Zhypix
-                if [ -f /usr/bin/vim ] && [ "/usr/bin/vim" != "${'$'}0" ] && ! grep -q "Custom vim" /usr/bin/vim 2>/dev/null; then
-                    exec /usr/bin/vim "${'$'}@"
-                elif [ -f /bin/vim ] && [ "/bin/vim" != "${'$'}0" ] && ! grep -q "Custom vim" /bin/vim 2>/dev/null; then
-                    exec /bin/vim "${'$'}@"
-                else
-                    echo "=== Zhypix Vim Sandbox Editor ==="
-                    if [ -n "${'$'}1" ]; then
-                        echo "Editing file: ${'$'}1"
-                        if [ -f "${'$'}1" ]; then
-                            echo "Current Content:"
-                            cat "${'$'}1"
-                        fi
-                        echo "Enter new content (Type :wq on a single line to save):"
-                        rm -f "${'$'}1"
-                        while read -r line; do
-                            if [ "${'$'}line" = ":wq" ]; then
-                                break
-                            fi
-                            echo "${'$'}line" >> "${'$'}1"
-                        done
-                        echo "File saved successfully!"
-                    else
-                        echo "Usage: vim <filename>"
-                    fi
-                fi
-            """)
-
-            // 14. xterm (solves Issue C1 & F1: xterm)
-            writeWrapper("xterm", """
-                #!/bin/sh
-                # Custom xterm wrapper for Zhypix
-                if [ -f /usr/bin/xterm ] && [ "/usr/bin/xterm" != "${'$'}0" ] && ! grep -q "Custom xterm" /usr/bin/xterm 2>/dev/null; then
-                    exec /usr/bin/xterm "${'$'}@"
-                elif [ -f /bin/xterm ] && [ "/bin/xterm" != "${'$'}0" ] && ! grep -q "Custom xterm" /bin/xterm 2>/dev/null; then
-                    exec /bin/xterm "${'$'}@"
-                else
-                    echo "xterm: simulated terminal emulation started on DISPLAY :99"
-                    echo "Terminal type: xterm-256color"
-                fi
-            """)
-
-            // 15. crontab (solves Issue H8: crontab)
-            writeWrapper("crontab", """
-                #!/bin/sh
-                # Custom crontab wrapper for Zhypix
-                if [ -f /usr/bin/crontab ] && [ "/usr/bin/crontab" != "${'$'}0" ] && ! grep -q "Custom crontab" /usr/bin/crontab 2>/dev/null; then
-                    exec /usr/bin/crontab "${'$'}@"
-                elif [ -f /bin/crontab ] && [ "/bin/crontab" != "${'$'}0" ] && ! grep -q "Custom crontab" /bin/crontab 2>/dev/null; then
-                    exec /bin/crontab "${'$'}@"
-                else
-                    cronfile="/tmp/crontab.txt"
-                    touch "${'$'}cronfile"
-                    if [ "${'$'}1" = "-l" ]; then
-                        cat "${'$'}cronfile" 2>/dev/null
-                    elif [ "${'$'}1" = "-e" ]; then
-                        echo "Editing crontab..."
-                        echo "* * * * * echo 'Zhypix custom cron task running' >> /var/log/cron.log" > "${'$'}cronfile"
-                        echo "crontab: installing new crontab"
-                    elif [ "${'$'}1" = "-r" ]; then
-                        rm -f "${'$'}cronfile"
-                        echo "crontab: removed crontab"
-                    else
-                        echo "Usage: crontab [-u user] [-l | -r | -e]"
-                    fi
-                fi
-            """)
-
-            // 16. strace (solves strace debug tool)
-            writeWrapper("strace", """
-                #!/bin/sh
-                # Custom strace wrapper for Zhypix
-                if [ -f /usr/bin/strace ] && [ "/usr/bin/strace" != "${'$'}0" ] && ! grep -q "Custom strace" /usr/bin/strace 2>/dev/null; then
-                    exec /usr/bin/strace "${'$'}@"
-                elif [ -f /bin/strace ] && [ "/bin/strace" != "${'$'}0" ] && ! grep -q "Custom strace" /bin/strace 2>/dev/null; then
-                    exec /bin/strace "${'$'}@"
-                else
-                    echo "execve(\"/bin/bash\", [\"bash\"], 0x7ffd56bc3400 /* 15 vars */) = 0"
-                    echo "brk(NULL)                               = 0x559b1f725000"
-                    echo "access(\"/etc/ld.so.preload\", R_OK)      = -1 ENOENT (No such file or directory)"
-                    echo "openat(AT_FDCWD, \"/etc/ld.so.cache\", O_RDONLY|O_CLOEXEC) = 3"
-                    echo "fstat(3, {st_mode=S_IFREG|0644, st_size=31245, ...}) = 0"
-                    echo "mmap(NULL, 31245, PROT_READ, MAP_PRIVATE, 3, 0) = 0x7f03bc180000"
-                    echo "close(3)                                = 0"
-                    echo "--- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=123, si_uid=0, si_status=0, si_utime=0, si_stime=0} ---"
-                    echo "+++ exited with 0 +++"
-                fi
-            """)
-
-            // 17. lsof (solves lsof debug tool)
-            writeWrapper("lsof", """
-                #!/bin/sh
-                # Custom lsof wrapper for Zhypix
-                if [ -f /usr/bin/lsof ] && [ "/usr/bin/lsof" != "${'$'}0" ] && ! grep -q "Custom lsof" /usr/bin/lsof 2>/dev/null; then
-                    exec /usr/bin/lsof "${'$'}@"
-                elif [ -f /bin/lsof ] && [ "/bin/lsof" != "${'$'}0" ] && ! grep -q "Custom lsof" /bin/lsof 2>/dev/null; then
-                    exec /bin/lsof "${'$'}@"
-                else
-                    echo "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF    NODE NAME"
-                    echo "bash      124 root  cwd    DIR    1,1     4096       2 /root"
-                    echo "bash      124 root  rtd    DIR    1,1     4096       2 /"
-                    echo "bash      124 root    0u   CHR  136,1      0t0       4 /dev/pts/1"
-                    echo "bash      124 root    1u   CHR  136,1      0t0       4 /dev/pts/1"
-                    echo "bash      124 root    2u   CHR  136,1      0t0       4 /dev/pts/1"
-                fi
-            """)
-
-            // 18. cat (solves CapEff & fake status reads universally with no recursion, local-only)
-            writeWrapper("cat", """
-                #!/bin/sh
-                # Custom cat wrapper for Zhypix
-                is_proc_status=0
-                for arg in "${'$'}@"; do
-                    case "${'$'}arg" in
-                        *proc*status) is_proc_status=1 ;;
-                    esac
-                done
-
-                if [ "${'$'}is_proc_status" -eq 1 ]; then
-                    echo "Name: bash"
-                    echo "State: R (running)"
-                    echo "Tgid: 12345"
-                    echo "Pid: 12345"
-                    echo "PPid: 1"
-                    echo "UID: 0 0 0 0"
-                    echo "GID: 0 0 0 0"
-                    echo "CapEff: 0000003fffffffff"
-                    echo "CapInh: 0000000000000000"
-                    echo "CapPrm: 0000003fffffffff"
-                    echo "CapBnd: 0000003fffffffff"
-                    echo "CapAmb: 0000000000000000"
-                else
-                    if [ -f /usr/bin/cat ] && [ "/usr/bin/cat" != "${'$'}0" ] && ! grep -q "Custom cat" /usr/bin/cat 2>/dev/null; then
-                        exec /usr/bin/cat "${'$'}@"
-                    elif [ -f /bin/cat ] && [ "/bin/cat" != "${'$'}0" ] && ! grep -q "Custom cat" /bin/cat 2>/dev/null; then
-                        exec /bin/cat "${'$'}@"
-                    else
-                        for file in "${'$'}@"; do
-                            [ -f "${'$'}file" ] && while IFS= read -r line; do echo "${'$'}line"; done < "${'$'}file"
-                        done
-                    fi
-                fi
-            """, localOnly = true)
-
-            // 19. grep (solves grep Capability and proc/status parsing universally, local-only)
-            writeWrapper("grep", """
-                #!/bin/sh
-                # Custom grep wrapper for Zhypix
-                is_proc_status=0
-                for arg in "${'$'}@"; do
-                    case "${'$'}arg" in
-                        *proc*status) is_proc_status=1 ;;
-                    esac
-                done
-
-                if [ "${'$'}is_proc_status" -eq 1 ]; then
-                    fake_status="Name: bash
-State: R (running)
-Tgid: 12345
-Pid: 12345
-PPid: 1
-UID: 0 0 0 0
-GID: 0 0 0 0
-CapEff: 0000003fffffffff
-CapInh: 0000000000000000
-CapPrm: 0000003fffffffff
-CapBnd: 0000003fffffffff
-CapAmb: 0000000000000000"
-                    
-                    patterns=""
-                    for arg in "${'$'}@"; do
-                        case "${'$'}arg" in
-                            *proc*status) ;;
-                            -*) ;;
-                            *) patterns="${'$'}patterns ${'$'}arg" ;;
-                        esac
-                    done
-                    
-                    echo "${'$'}fake_status" | /usr/bin/grep "${'$'}@" 2>/dev/null || echo "${'$'}fake_status" | /bin/grep "${'$'}@" 2>/dev/null || echo "${'$'}fake_status"
-                else
-                    if [ -f /usr/bin/grep ] && [ "/usr/bin/grep" != "${'$'}0" ] && ! grep -q "Custom grep" /usr/bin/grep 2>/dev/null; then
-                        exec /usr/bin/grep "${'$'}@"
-                    elif [ -f /bin/grep ] && [ "/bin/grep" != "${'$'}0" ] && ! grep -q "Custom grep" /bin/grep 2>/dev/null; then
-                        exec /bin/grep "${'$'}@"
-                    else
-                        echo "grep mock fallback"
-                    fi
-                fi
-            """, localOnly = true)
-
-            // 20. capsh (solves capsh capability inspection tool)
-            writeWrapper("capsh", """
-                #!/bin/sh
-                # Custom capsh wrapper for Zhypix
-                if [ "${'$'}1" = "--print" ]; then
-                    echo "Current: = cap_chown,cap_dac_override,cap_dac_read_search,cap_fowner,cap_fsetid,cap_kill,cap_setgid,cap_setuid,cap_setpcap,cap_linux_immutable,cap_net_bind_service,cap_net_broadcast,cap_net_admin,cap_net_raw,cap_ipc_lock,cap_ipc_owner,cap_sys_module,cap_sys_rawio,cap_sys_chroot,cap_sys_ptrace,cap_sys_pacct,cap_sys_admin,cap_sys_boot,cap_sys_nice,cap_sys_resource,cap_sys_time,cap_sys_tty_config,cap_mknod,cap_lease,cap_audit_write,cap_audit_control,cap_setfcap,cap_mac_override,cap_mac_admin,cap_syslog,cap_wake_alarm,cap_block_suspend,cap_audit_read,cap_perfmon,cap_bpftool,cap_checkpoint_restore+ep"
-                    echo "Bounding set =cap_chown,cap_dac_override,cap_dac_read_search,cap_fowner,cap_fsetid,cap_kill,cap_setgid,cap_setuid,cap_setpcap,cap_linux_immutable,cap_net_bind_service,cap_net_broadcast,cap_net_admin,cap_net_raw,cap_ipc_lock,cap_ipc_owner,cap_sys_module,cap_sys_rawio,cap_sys_chroot,cap_sys_ptrace,cap_sys_pacct,cap_sys_admin,cap_sys_boot,cap_sys_nice,cap_sys_resource,cap_sys_time,cap_sys_tty_config,cap_mknod,cap_lease,cap_audit_write,cap_audit_control,cap_setfcap,cap_mac_override,cap_mac_admin,cap_syslog,cap_wake_alarm,cap_block_suspend,cap_audit_read,cap_perfmon,cap_bpftool,cap_checkpoint_restore"
-                    echo "Ambient set ="
-                    echo "Securebits: 00/0x0/1'b0"
-                    echo " secure-noroot: no (locked=no)"
-                    echo " secure-no-suid-control: no (locked=no)"
-                    echo " secure-keep-caps: no (locked=no)"
-                    echo " secure-no-ambient-raise: no (locked=no)"
-                    echo "uid=0(root) gid=0(root) groups=0(root)"
-                else
-                    if [ -f /usr/bin/capsh ] && [ "/usr/bin/capsh" != "${'$'}0" ] && ! grep -q "Custom capsh" /usr/bin/capsh 2>/dev/null; then
-                        exec /usr/bin/capsh "${'$'}@"
-                    elif [ -f /bin/capsh ] && [ "/bin/capsh" != "${'$'}0" ] && ! grep -q "Custom capsh" /bin/capsh 2>/dev/null; then
-                        exec /bin/capsh "${'$'}@"
-                    else
-                        echo "capsh mock fallback: Current capabilities have all privileges (+ep)"
-                    fi
-                fi
-            """)
-
-            // 21. archlinux-java (solves Arch Linux Java status utility)
-            writeWrapper("archlinux-java", """
-                #!/bin/sh
-                # Custom archlinux-java wrapper for Zhypix
-                if [ -f /usr/bin/archlinux-java ] && [ "/usr/bin/archlinux-java" != "${'$'}0" ] && ! grep -q "Custom archlinux-java" /usr/bin/archlinux-java 2>/dev/null; then
-                    exec /usr/bin/archlinux-java "${'$'}@"
-                elif [ -f /bin/archlinux-java ] && [ "/bin/archlinux-java" != "${'$'}0" ] && ! grep -q "Custom archlinux-java" /bin/bin/archlinux-java 2>/dev/null; then
-                    exec /bin/archlinux-java "${'$'}@"
-                else
-                    case "${'$'}1" in
-                        status)
-                            echo "Available Java environments:"
-                            echo "  java-21-openjdk (default)"
-                            ;;
-                        get)
-                            echo "java-21-openjdk"
-                            ;;
-                        set)
-                            if [ -z "${'$'}2" ]; then
-                                echo "Error: no environment specified"
-                                exit 1
-                            fi
-                            echo "Setting default Java environment to ${'$'}2..."
-                            ;;
-                        unset)
-                            echo "Unsetting default Java environment..."
-                            ;;
-                        fix)
-                            echo "Fixing default Java environment link..."
-                            ;;
-                        *)
-                            echo "Usage: archlinux-java <COMMAND>"
-                            echo ""
-                            echo "Commands:"
-                            echo "  status          List installed Java environments and show the default"
-                            echo "  get             Print the name of the default Java environment"
-                            echo "  set <ENV>       Set the default Java environment"
-                            echo "  unset           Unset the default Java environment"
-                            echo "  fix             Fix the default Java environment link"
-                            ;;
-                    esac
-                fi
-            """)
-
-            // 22. java (solves java execution mockup)
-            writeWrapper("java", """
-                #!/bin/sh
-                # Custom java wrapper for Zhypix
-                if [ -f /usr/bin/java ] && [ "/usr/bin/java" != "${'$'}0" ] && ! grep -q "Custom java" /usr/bin/java 2>/dev/null; then
-                    exec /usr/bin/java "${'$'}@"
-                elif [ -f /bin/java ] && [ "/bin/java" != "${'$'}0" ] && ! grep -q "Custom java" /bin/java 2>/dev/null; then
-                    exec /bin/java "${'$'}@"
-                else
-                    case "${'$'}1" in
-                        -version|--version)
-                            echo "openjdk version \"21.0.4\" 2024-07-16 LTS"
-                            echo "OpenJDK Runtime Environment (build 21.0.4+7-3)"
-                            echo "OpenJDK 64-Bit Server VM (build 21.0.4+7-3, mixed mode, sharing)"
-                            ;;
-                        *)
-                            echo "Usage: java [options] <mainclass> [args...]"
-                            echo "   or  java [options] -jar <jarfile> [args...]"
-                            echo "   or  java [options] -m <module>[/<mainclass>] [args...]"
-                            echo "   or  java [options] <sourcefile> [args...]"
-                            echo ""
-                            echo "Arguments after the class name, jar file, module name, or source file"
-                            echo "are passed to the main class."
-                            ;;
-                    esac
-                fi
-            """)
-
-            // 23. javac (solves javac compilation mockup)
-            writeWrapper("javac", """
-                #!/bin/sh
-                # Custom javac wrapper for Zhypix
-                if [ -f /usr/bin/javac ] && [ "/usr/bin/javac" != "${'$'}0" ] && ! grep -q "Custom javac" /usr/bin/javac 2>/dev/null; then
-                    exec /usr/bin/javac "${'$'}@"
-                elif [ -f /bin/javac ] && [ "/bin/javac" != "${'$'}0" ] && ! grep -q "Custom javac" /bin/javac 2>/dev/null; then
-                    exec /bin/javac "${'$'}@"
-                else
-                    case "${'$'}1" in
-                        -version|--version)
-                            echo "javac 21.0.4"
-                            ;;
-                        *)
-                            echo "Usage: javac <options> <source files>"
-                            echo "use --help for a list of possible options"
-                            ;;
-                    esac
-                fi
-            """)
-
-
-            android.util.Log.d("Zhypix", "Successfully installed all custom local wrappers inside distro usr/local/bin and usr/bin")
         } catch (e: Exception) {
-            android.util.Log.e("Zhypix", "Failed to install custom wrapper scripts", e)
+            android.util.Log.e("Zhypix", "Error cleaning legacy wrappers", e)
         }
     }
 
-    /**
-     * Launch spec for a real PTY-backed interactive session (Termux TerminalView integration).
-     * Reuses the same proot invocation contract as executeCommand so guest behavior matches.
-     */
     data class PtyLaunchSpec(
         val executablePath: String,
         val cwd: String,
@@ -3721,89 +3396,129 @@ CapAmb: 0000000000000000"
         val distroAlias: String?
     )
 
+    fun isDistroFullyInstalled(distroAlias: String?): Boolean {
+        if (distroAlias.isNullOrBlank()) return false
+        val context = applicationContext ?: return false
+        val prootDir = File(context.filesDir, "proot-distros")
+        val distroDir = File(prootDir, distroAlias)
+        val altDir = File(File(context.filesDir, "proot-distro"), distroAlias)
+        val target = if (distroDir.exists()) distroDir else if (altDir.exists()) altDir else return false
+        
+        val shellPaths = listOf("bin/bash", "bin/sh", "bin/dash", "bin/ash", "usr/bin/bash", "usr/bin/sh", "usr/bin/dash")
+        val hasShell = shellPaths.any { p ->
+            val f = File(target, p)
+            f.exists() || Files.isSymbolicLink(f.toPath())
+        }
+        val hasStructure = listOf("bin", "usr", "etc", "lib", "lib64", "sbin").any { p ->
+            val f = File(target, p)
+            f.exists() || Files.isSymbolicLink(f.toPath())
+        }
+        return hasShell && hasStructure
+    }
+
+    fun resolveDistroDir(distroAlias: String): File {
+        val context = applicationContext
+        val primary = if (context != null) File(File(context.filesDir, "proot-distros"), distroAlias) else File("proot-distros/$distroAlias")
+        val secondary = if (context != null) File(File(context.filesDir, "proot-distro"), distroAlias) else File("proot-distro/$distroAlias")
+        val chosen = when {
+            primary.exists() && primary.isDirectory -> primary
+            secondary.exists() && secondary.isDirectory -> secondary
+            else -> primary
+        }
+        return try {
+            chosen.canonicalFile
+        } catch (e: Exception) {
+            chosen.absoluteFile
+        }
+    }
+
     fun resolveBusyboxFile(): File? {
         val context = applicationContext ?: return null
-        val c1 = File(context.filesDir, "lib/libbusybox.so")
-        val c2 = File(context.applicationInfo.nativeLibraryDir, "libbusybox.so")
+        val filesLib = File(context.filesDir, "lib/libbusybox.so")
+        val nativeFile = File(context.applicationInfo.nativeLibraryDir, "libbusybox.so")
         return when {
-            c1.exists() && isValidElf(c1) -> c1
-            c2.exists() && isValidElf(c2) -> c2
+            filesLib.exists() && isValidElf(filesLib) -> filesLib
+            nativeFile.exists() && isValidElf(nativeFile) && nativeFile.length() > 50000 -> nativeFile
             else -> null
         }
     }
 
     fun buildPtyLaunchSpec(distroAlias: String?, cwdOverride: String? = null): PtyLaunchSpec? {
         val context = applicationContext ?: return null
+        ensureProotPathResolved(context)
 
-        if (distroAlias == null) {
-            val busybox = resolveBusyboxFile() ?: return null
-            try {
-                busybox.setExecutable(true, false)
-                busybox.setReadable(true, false)
-            } catch (_: Exception) {}
-            val env = mutableMapOf(
-                "PATH" to "/system/bin:/system/xbin",
-                "HOME" to context.filesDir.absolutePath,
-                "USER" to "u0_a" + android.os.Process.myUid() % 10000,
-                "SHELL" to busybox.absolutePath,
-                "TERM" to "xterm-256color",
-                "LANG" to "C.UTF-8",
-                "LC_ALL" to "C.UTF-8",
-                "TMPDIR" to context.cacheDir.absolutePath
+        if (distroAlias != null) {
+            if (!isDistroFullyInstalled(distroAlias)) {
+                android.util.Log.w("Zhypix", "Distro '$distroAlias' is not installed or incomplete. Falling back to host shell.")
+                return null
+            }
+            val distroDir = resolveDistroDir(distroAlias)
+            removeLegacyMockWrappers(distroDir)
+            repairDpkgDatabase(distroDir)
+            ensureBinariesAndShellsExecutable(distroDir)
+            val proot = prootPath?.takeIf { File(it).exists() && isValidElf(File(it)) } ?: return null
+
+            var guestDir = cwdOverride ?: _guestDirectory.value.ifBlank { "/root" }
+            if (!File(distroDir, guestDir.removePrefix("/")).exists()) {
+                guestDir = "/root"
+            }
+
+            val canonicalDistroPath = try { distroDir.canonicalFile.absolutePath } catch (e: Exception) { distroDir.absolutePath }
+
+            val cmdList = mutableListOf(
+                proot,
+                "-r", canonicalDistroPath,
+                "-0",
+                "--link2symlink",
+                "--sysvipc",
+                "--kill-on-exit",
+                "-w", guestDir
             )
+            appendStandardPRootBindings(cmdList, context, distroDir)
+
+            // exec replaces sh with robust interactive shell fallback
+            cmdList.addAll(listOf(
+                "/bin/sh", "-c",
+                "unset LD_LIBRARY_PATH; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH HOME=/root USER=root SHELL=/bin/bash TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp TEMP=/tmp TMP=/tmp DEBIAN_FRONTEND=noninteractive; if [ -x /bin/bash ]; then exec /bin/bash -l; elif [ -x /usr/bin/bash ]; then exec /usr/bin/bash -l; elif [ -x /bin/sh ]; then exec /bin/sh -l; else exec sh; fi"
+            ))
+
+            val prootTmpDir = File(File(context.cacheDir, "proot_tmp"), "pty_" + java.util.UUID.randomUUID().toString()).apply {
+                mkdirs()
+                setWritable(true, false)
+                setReadable(true, false)
+                setExecutable(true, false)
+            }
+            val envMap = buildStandardPRootEnvironment(context, prootTmpDir)
+
             return PtyLaunchSpec(
-                executablePath = busybox.absolutePath,
-                cwd = globalRealDirectory.takeIf { it.isDirectory }?.absolutePath ?: context.filesDir.absolutePath,
-                args = listOf("sh"),
-                env = env.map { (k, v) -> "$k=$v" },
-                distroAlias = null
+                executablePath = proot,
+                cwd = context.filesDir.absolutePath,
+                args = cmdList,
+                env = envMap.map { (k, v) -> "$k=$v" },
+                distroAlias = distroAlias
             )
         }
 
-        val distroDir = File(File(context.filesDir, "proot-distros"), distroAlias)
-        if (!distroDir.exists()) return null
-        val proot = prootPath?.takeIf { File(it).exists() && isValidElf(File(it)) } ?: return null
-
-        var guestDir = cwdOverride ?: _guestDirectory.value.ifBlank { "/root" }
-        if (!File(distroDir, guestDir.removePrefix("/")).exists()) {
-            guestDir = "/root"
-        }
-
-        val shell = listOf("bin/bash", "bin/sh", "bin/ash")
-            .map { File(distroDir, it) }
-            .firstOrNull { it.exists() }
-            ?.let { "/" + it.absolutePath.removePrefix(distroDir.absolutePath).trimStart('/') }
-            ?: "/bin/sh"
-
-        val cmdList = mutableListOf(
-            proot,
-            "-r", distroDir.absolutePath,
-            "-0",
-            "--link2symlink",
-            "-w", guestDir
+        // Fallback to BusyBox or Android host shell (/system/bin/sh)
+        val busybox = resolveBusyboxFile()
+        val executable = busybox?.absolutePath ?: if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
+        val env = mutableMapOf(
+            "PATH" to "/system/bin:/system/xbin:${context.applicationInfo.nativeLibraryDir}:${File(context.filesDir, "lib").absolutePath}",
+            "LD_LIBRARY_PATH" to "${File(context.filesDir, "lib").absolutePath}:${context.applicationInfo.nativeLibraryDir}",
+            "HOME" to context.filesDir.absolutePath,
+            "USER" to "u0_a" + android.os.Process.myUid() % 10000,
+            "SHELL" to executable,
+            "TERM" to "xterm-256color",
+            "LANG" to "C.UTF-8",
+            "LC_ALL" to "C.UTF-8",
+            "TMPDIR" to context.cacheDir.absolutePath
         )
-        appendStandardPRootBindings(cmdList, context, distroDir)
-
-        // exec replaces sh so bash is the direct child: clean job-control/signal semantics.
-        cmdList.addAll(listOf(
-            "/bin/sh", "-c",
-            "unset LD_LIBRARY_PATH; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:\$PATH HOME=/root USER=root SHELL=/bin/bash TERM=xterm-256color LANG=C.UTF-8 LC_ALL=C.UTF-8 TMPDIR=/tmp TEMP=/tmp TMP=/tmp DEBIAN_FRONTEND=noninteractive; exec $shell"
-        ))
-
-        val prootTmpDir = File(File(context.cacheDir, "proot_tmp"), "pty_" + java.util.UUID.randomUUID().toString()).apply {
-            mkdirs()
-            setWritable(true, false)
-            setReadable(true, false)
-            setExecutable(true, false)
-        }
-        val envMap = buildStandardPRootEnvironment(context, prootTmpDir)
-
         return PtyLaunchSpec(
-            executablePath = proot,
-            cwd = context.filesDir.absolutePath,
-            args = cmdList.subList(1, cmdList.size),
-            env = envMap.map { (k, v) -> "$k=$v" },
-            distroAlias = distroAlias
+            executablePath = executable,
+            cwd = globalRealDirectory.takeIf { it.isDirectory }?.absolutePath ?: context.filesDir.absolutePath,
+            args = if (busybox != null) listOf("sh") else listOf(executable),
+            env = env.map { (k, v) -> "$k=$v" },
+            distroAlias = null
         )
     }
 }

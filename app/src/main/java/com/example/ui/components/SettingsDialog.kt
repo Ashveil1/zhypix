@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -131,8 +132,9 @@ fun SectionGroupCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        color = Color(0xFF131315),
-        shape = RoundedCornerShape(14.dp),
+        color = Color(0xFF131316),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFF222227)),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -1362,6 +1364,14 @@ fun SettingsScreen(
 
     var activeSubScreen by remember(initialSubScreen) { mutableStateOf(initialSubScreen) }
 
+    BackHandler(enabled = true) {
+        if (activeSubScreen != SettingsScreenType.MAIN) {
+            activeSubScreen = SettingsScreenType.MAIN
+        } else {
+            onClose()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         AnimatedContent(
             targetState = activeSubScreen,
@@ -1381,7 +1391,7 @@ fun SettingsScreen(
                 SettingsScreenType.MAIN -> {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(horizontal = 18.dp, vertical = 20.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1590,55 +1600,12 @@ fun SettingsScreen(
                                 onClick = { activeSubScreen = SettingsScreenType.SHARED_LINKS }
                             )
                         }
-
-                        // Save & Verify
-                        val connectionStatus by viewModel.connectionStatus.collectAsState()
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    viewModel.saveSettings()
-                                    showSaved = true
-                                    scope.launch {
-                                        kotlinx.coroutines.delay(2000)
-                                        showSaved = false
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
-                                modifier = Modifier.weight(1f).height(48.dp),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                if (showSaved) {
-                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Saved", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                } else {
-                                    Text("Save Config", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                }
-                            }
-
-                            Button(
-                                onClick = {
-                                    viewModel.saveSettings()
-                                    viewModel.verifyConnection()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = SurfaceDark, contentColor = Color.White),
-                                modifier = Modifier.weight(1f).height(48.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-                            ) {
-                                Text("Verify Link", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
-                        }
                     }
                 }
                 SettingsScreenType.PROFILE -> {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1654,7 +1621,7 @@ fun SettingsScreen(
                 SettingsScreenType.PERMISSIONS -> {
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -1779,7 +1746,7 @@ fun SettingsScreen(
 
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -2334,7 +2301,7 @@ fun SettingsScreen(
 
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -2945,7 +2912,7 @@ fun SettingsScreen(
 
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -3033,7 +3000,7 @@ fun SettingsScreen(
 
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -3136,7 +3103,8 @@ fun SettingsScreen(
                     }
                     Column(
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
                             .padding(18.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
@@ -3145,9 +3113,8 @@ fun SettingsScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f)
                                 .background(Color(0xFF131315), RoundedCornerShape(14.dp))
-                                .padding(24.dp),
+                                .padding(32.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(

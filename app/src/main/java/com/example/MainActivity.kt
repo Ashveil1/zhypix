@@ -30,6 +30,15 @@ class MainActivity : ComponentActivity() {
     // Create system notification channel
     com.example.utils.SystemNotificationHelper.createNotificationChannel(this)
 
+    // Pre-initialize Linux Terminal environment
+    lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+      try {
+        com.example.utils.LinuxTerminalSimulator.initialize(applicationContext)
+      } catch (e: Exception) {
+        Log.e("MainActivity", "Failed to pre-initialize LinuxTerminalSimulator", e)
+      }
+    }
+
     // Request notification permission on Android 13+
     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
       if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {

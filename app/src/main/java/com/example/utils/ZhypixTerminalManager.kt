@@ -93,25 +93,32 @@ object ZhypixTerminalManager {
     var pasteRequestHandler: (() -> Unit)? = null
 
     fun createSession(context: Context, name: String, distroAlias: String?): PtyTerminal? {
-        val spec = LinuxTerminalSimulator.buildPtyLaunchSpec(distroAlias)
-        if (spec == null) {
-            Log.e(TAG, "Failed to build PTY launch spec (distro=$distroAlias)")
+        try {
+            LinuxTerminalSimulator.initialize(context)
+            val spec = LinuxTerminalSimulator.buildPtyLaunchSpec(distroAlias)
+                ?: LinuxTerminalSimulator.buildPtyLaunchSpec(null)
+            if (spec == null) {
+                Log.e(TAG, "Failed to build PTY launch spec (distro=$distroAlias)")
+                return null
+            }
+            val id = "pty-" + idCounter.incrementAndGet()
+            val terminal = PtyTerminal(id, name, spec.distroAlias, this)
+            terminal.session = TerminalSession(
+                spec.executablePath,
+                spec.cwd,
+                spec.args.toTypedArray(),
+                spec.env.toTypedArray(),
+                null,
+                terminal
+            )
+            _terminals.value = _terminals.value + terminal
+            _activeTerminalId.value = id
+            refreshActiveCwd()
+            return terminal
+        } catch (e: Throwable) {
+            Log.e(TAG, "Error creating PTY session", e)
             return null
         }
-        val id = "pty-" + idCounter.incrementAndGet()
-        val terminal = PtyTerminal(id, name, spec.distroAlias, this)
-        terminal.session = TerminalSession(
-            spec.executablePath,
-            spec.cwd,
-            spec.args.toTypedArray(),
-            spec.env.toTypedArray(),
-            null,
-            terminal
-        )
-        _terminals.value = _terminals.value + terminal
-        _activeTerminalId.value = id
-        refreshActiveCwd()
-        return terminal
     }
 
     fun onOutputChanged(sessionId: String) { listener?.onOutputChanged(sessionId) }

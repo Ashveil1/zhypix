@@ -246,6 +246,126 @@ if __name__ == "__main__":
 | **6. `PRoot process hanging` / Socket Collision** | มีไฟล์ socket หรือ lock ค้างใน `TMPDIR` ของ PRoot | ล้างไฟล์ที่ขึ้นต้นด้วย `proot-` หรือไฟล์ `socket/lock` ใน `context.filesDir/tmp` ก่อนรันคำสั่ง และตั้งค่า `PROOT_NO_SECCOMP=1` |
 | **7. Post-install daemon crash (`systemctl` / `start-stop-daemon`)** | PRoot ไม่มี PID 1 PID init/systemd รันอยู่จริง | สร้างไฟล์จำลอง Dummy script สำหรับ `start-stop-daemon`, `systemctl`, `initctl` คืนค่า `exit 0` ป้องกันแพ็กเกจล่มตอนกอบกู้บริการ |
 | **8. `locale` warnings / Perl-Python non-ASCII crash** | ค่าตัวแปรภาษาและ Encoding ไม่ได้ถูกกำหนดใน Shell | กำหนด `export LANG=C.UTF-8` และ `LC_ALL=C.UTF-8` ใน Environment ของ PRoot ทุกรอบคำสั่ง |
+| **9. `exec(.../files/lib/libbusybox.so) permission denied`** | SELinux W^X บล็อกการ execute ไบนารีจาก app internal storage | แยกโหมด Host Shell ไปใช้ `/system/bin/sh` และใช้ Pure JVM Extractor สกัด Rootfs แทนการเรียก Busybox ภายนอก |
+| **10. `cannot locate symbol "lbb_main"`** | ไบนารี Busybox ของ Termux เป็น Launcher Stub ที่ต้องการ dynamic library คู่กัน | สกัด Rootfs และ Symlink ในระดับ Java/JVM (`Os.symlink`) โดยตรง ไม่ต้องพึ่งพา Busybox binary |
+
+---
+
+## 7. สถาปัตยกรรม Host Shell vs. Guest Distro และการจัดการ Rootfs อย่างถูกต้อง (Proot-Distro Architecture Standards)
+
+### 7.1 ความแตกต่างระหว่าง Host Shell และ Guest Linux Distro
+การทำงานของ Terminal จำลองบน Android แบ่งเป็น 2 ระดับอย่างเด็ดขาด:
+
+```
++-------------------------------------------------------------------------------+
+|                             Terminal Screen (UI)                             |
++-------------------------------------------------------------------------------+
+        |                                                       |
+        v (Host Mode: distro == null)                           v (Guest Mode: distro != null)
++-------------------------------+               +-------------------------------+
+|       Host Android Shell      |               |          PRoot Engine         |
+|        /system/bin/sh         |               |   nativeLibraryDir/libproot   |
+|   (SELinux Allowed, Stable)   |               +-------------------------------+
++-------------------------------+                               | (ptrace syscall translation)
+                                                                v
+                                                +-------------------------------+
+                                                |     Guest Linux Filesystem    |
+                                                |  (files/proot-distros/debian) |
+                                                |  /bin/bash, /usr/bin/apt, etc.|
+                                                +-------------------------------+
+```
+
+1. **Host Shell Mode (Android Native OS)**:
+   - **ข้อกำหนดตายตัว**: ต้องรัน `/system/bin/sh` (ซึ่งเป็น Standard Toybox/Mksh ของ Android)
+   - **ข้อห้ามสำคัญ**: **ห้าม** พยายามรัน Busybox หรือ binary อื่นๆ จากโฟลเดอร์ `context.filesDir` โดยตรง เนื่องจาก Android 10+ (API 29+) มีกฎ **SELinux W^X (Write XOR Execute)** บล็อกไม่ให้กระบวนการของแอปรัน Executable ที่วางอยู่ใน Storage ของตนเอง ส่งผลให้เกิดข้อผิดพลาด `exec() permission denied`
+   - `/system/bin/sh` ได้รับอนุญาตจากระบบปฏิบัติการอย่างถูกต้อง จึงสามารถรันคำสั่งพื้นฐาน (เช่น `ls`, `ps`, `cat`, `echo`, `logcat`) ได้อย่างสมบูรณ์โดยไม่สะดุดปัญหาเรื่องสิทธิ์
+
+2. **Guest Distro Mode (PRoot Sandbox)**:
+   - ตัวโปรแกรม `libproot.so` จะถูกติดตั้งและรันจาก `context.applicationInfo.nativeLibraryDir` (ผ่านการตั้งค่า `extractNativeLibs = true` ใน Gradle) ซึ่งเป็นไดเรกทอรี Native Libs ที่ Android อนุญาตให้ Execute ได้
+   - PRoot ใช้เทคนิค `ptrace(2)` เพื่อดักจับ System Calls ของไบนารีใน Guest OS (เช่น `/bin/bash`, `apt`, `python3`) โดยที่ระบบ Android ไม่ได้รับรู้ว่าเป็นการรันโปรแกรมภายนอก จึงสามารถรัน Linux Environment ได้เต็มรูปแบบโดยไม่ต้องรูทเครื่อง (No Root Required)
+
+---
+
+### 7.2 โครงสร้างของ Termux BusyBox และทำไมจึงไม่ควรนำมารันตรงๆ
+- แพ็กเกจ Busybox ของ Termux (`busybox_...deb`) มีการแบ่งโค้ดออกเป็น 2 ส่วน:
+  1. **Launcher Stub** (`/usr/bin/busybox` ขนาด ~4 KB): ทำหน้าที่เป็นตัวเรียกฟังก์ชัน `lbb_main(...)`
+  2. **Shared Object Library** (`/usr/lib/libbusybox.so.1.38.0` ขนาด ~870 KB): บรรจุคำสั่ง Unix ทั้งหมดและ Export สัญลักษณ์ `lbb_main`
+- หากนำเฉพาะไฟล์ Stub มาเปลี่ยนชื่อเป็น `.so` แล้วพยายามเรียกทำงาน จะเกิดข้อผิดพลาด **`cannot locate symbol "lbb_main"`** ทันทีหากไม่มีการลิงก์ Dynamic Library ที่ถูกต้อง และติดเงื่อนไข SELinux W^X ดังกล่าวข้างต้น
+
+---
+
+### 7.3 การแตกไฟล์ Rootfs และจัดการ Symbolic Links แบบ Pure JVM (JVM-First Extractor)
+เพื่อตัดปัญหาความพึ่งพาของไบนารีภายนอกและหลีกเลี่ยงข้อผิดพลาดเรื่อง Permission ทั้งหมด การดาวน์โหลดและติดตั้ง Distro Rootfs (`.tar.gz` หรือ `.tar.xz`) จะต้องทำงานบน JVM 100%:
+
+1. **การคลายการบีบอัด In-Memory**:
+   - ใช้ `Apache Commons Compress` (`XZCompressorInputStream` สำหรับ `.xz` และ `GzipCompressorInputStream` สำหรับ `.gz`) ต่อร่วมกับ `TarArchiveInputStream`
+   - คลายไฟล์ลงในไดเรกทอรี `context.filesDir/proot-distros/<distro_alias>` โดยตรง
+2. **การสร้าง Symbolic Links & Hard Links**:
+   - **ห้ามเรียก**: `Runtime.getRuntime().exec(arrayOf("ln", "-s", ...))` เพราะต้องอาศัยคำสั่งภายนอกและเสี่ยงต่อการถูกบล็อกสิทธิ์
+   - **ให้ใช้ System Call API โดยตรง**:
+     ```kotlin
+     // 1. ลองใช้ C-level symlink ผ่าน Android POSIX API (ทำงานได้ตั้งแต่ Android 5.0+)
+     android.system.Os.symlink(relativeTarget, symlinkFile.absolutePath)
+     
+     // 2. หรือใช้ Java NIO API (Android 8.0+)
+     java.nio.file.Files.createSymbolicLink(symlinkFile.toPath(), java.nio.file.Paths.get(relativeTarget))
+     ```
+3. **การแปลง Symlink Target ให้เป็น Relative Path เสมอ**:
+   - หาก Link Target ใน Rootfs อ้างอิงเป็น Absolute Path (เช่น `/usr/bin/python3`) ต้องคำนวณ Path สัมพัทธ์เทียบกับตำแหน่งไดเรกทอรีของ Symlink นั้นๆ ก่อนสร้าง Link เพื่อให้ PRoot สามารถเข้าถึงไฟล์ปลายทางได้อย่างถูกต้องแม้ Rootfs จะถูกวางอยู่ใต้โฟลเดอร์ของแอป
+
+---
+
+### 7.4 มาตรฐานการตั้งค่าสภาพแวดล้อมเพื่อเปิด Distro (Standard PRoot Bindings & Env)
+
+เมื่อเริ่ม PTY Session หรือ Execute คำสั่งผ่าน PRoot ให้ปฏิบัติตามมาตรฐาน Arguments ต่อไปนี้เสมอ:
+
+```kotlin
+val prootArgs = mutableListOf(
+    prootBinaryPath,
+    "--kill-on-exit",
+    "--link2symlink",
+    "-0",                     // จำลองสิทธิ์ Fake Root (uid=0, gid=0)
+    "-r", distroDir.absolutePath, // กำหนด Root Directory ของ Guest OS
+    "-b", "/dev",
+    "-b", "/proc",
+    "-b", "/sys",
+    "-b", "/dev/urandom:/dev/random",
+    "-b", "${context.cacheDir.absolutePath}/shm:/dev/shm", // จำลอง POSIX Shared Memory
+    "-w", "/root"             // กำหนด Working Directory
+)
+```
+
+**Environment Variables ที่จำเป็น:**
+- `HOME=/root`
+- `USER=root`
+- `SHELL=/bin/bash`
+- `TERM=xterm-256color`
+- `LANG=C.UTF-8` และ `LC_ALL=C.UTF-8`
+- `TMPDIR=/tmp`
+- `PROOT_LOADER` และ `PROOT_LOADER_32` ชี้ไปยัง loader `.so` ใน `nativeLibraryDir`
+
+---
+
+### 7.5 การแก้ไขและป้องกันข้อผิดพลาด `is not regular file` ใน PRoot
+
+**สาเหตุของปัญหา:**
+1. **Rootfs ยังไม่สมบูรณ์หรือไม่มีอยู่จริง (Non-existent / Half-extracted rootfs):** เมื่อมีการเรียก `proot -r <path>` ไปยังไดเรกทอรีที่เพิ่งถูกสร้างด้วย `mkdirs()` แต่ยังดาวน์โหลด/แตกไฟล์ rootfs ไม่เสร็จ หรือไฟล์สูญหาย PRoot จะไม่สามารถตรวจพบโครงสร้าง rootfs และจะรายงานข้อผิดพลาดว่า path นั้นไม่ใช่ regular file / directory ที่ถูกต้อง
+2. **ความไม่สอดคล้องของชื่อ Path (`proot-distro` vs `proot-distros`):** ในบางสคริปต์หรือคำสั่งที่ผู้ใช้พิมพ์ มีการอ้างอิง path `files/proot-distro/<alias>` แทน `files/proot-distros/<alias>`
+3. **การพยายามเข้า Guest Mode ขณะที่ระบบยังไม่ได้ติดตั้ง Distro:** PTY หรือ Terminal Engine พยายามผูกคำสั่งเข้า PRoot ทันทีที่มีการระบุ Distro Alias โดยไม่ได้ตรวจสอบความสมบูรณ์ของ Rootfs ล่วงหน้า
+4. **การตัดทอน `argv[0]` ใน PTY Launch Spec (`buildPtyLaunchSpec` Mismatch):** ใน Termux JNI Subprocess (`termux.c`) อาศัยอาร์เรย์ `argv[]` ที่มีองค์ประกอบแรกเป็นชื่อโปรแกรม (`proot`) หากส่งเฉพาะ `subList(1, size)` จะทำให้อาร์กิวเมนต์ตัวแรกกลายเป็น `-r` และตัวที่สองกลายเป็นโฟลเดอร์ rootfs (`/data/user/0/.../ubuntu`) PRoot จึงเข้าใจผิดว่าโฟลเดอร์ `ubuntu` คือคำสั่งโปรแกรมเชลล์ภายใน Container และรายงานข้อผิดพลาดว่า `'ubuntu' is not a regular file`
+5. **Broken Symlinks จากโครงสร้าง Linux UsrMerge ยุคใหม่:** การตัดย่อ Absolute Symlinks ตอนแตกไฟล์ tar ล้มเหลวเนื่องจากการแมป Relative Path ไม่ลึกพอ ทำให้ `/usr/bin/sh` หรือ `/bin/sh` กลายเป็น Broken Symlink ชี้ไปยังไฟล์ที่ไม่มีอยู่จริง
+
+**แนวทางแก้ไขและป้องกันอย่างยั่งยืนใน Zhypix:**
+1. **`isDistroFullyInstalled(alias)` Validation Layer:**
+   - ตรวจสอบความพร้อมของ Rootfs ล่วงหน้าเสมอ โดยเช็คว่ามีไดเรกทอรี `bin/` หรือ `usr/bin/`, ไฟล์เชลล์ (`bash`, `sh`, `dash`, `ash`), และโครงสร้าง `etc/` ครบถ้วน
+2. **Graceful Fallback to Host Shell:**
+   - หาก Distro ที่ระบุยังติดตั้งไม่เสร็จหรือไม่สมบูรณ์ ระบบ PTY และ `executeCommand` จะสลับกลับมาใช้ **Host Shell (`/system/bin/sh`)** อย่างปลอดภัย พร้อมแจ้งเตือนให้ผู้ใช้รัน `proot-distro install <alias>` ก่อนใช้งาน
+3. **Path Compatibility Symlink & `resolveDistroDir`:**
+   - สร้าง Symlink อัตโนมัติระหว่าง `proot-distro` และ `proot-distros` ใน `initialize()` เพื่อให้ทุกคำสั่งทั้งแบบเอกพจน์และพหูพจน์ทำงานร่วมกันได้อย่างราบรื่น 100%
+4. **PTY Subprocess `argv[0]` Alignment:**
+   - ใน `buildPtyLaunchSpec()` ต้องส่ง `args = cmdList` โดยคงองค์ประกอบแรก (`proot`) ไว้ เพื่อให้ JNI Native Layer (`termux.c`) เติม `argv[0]` ตรงตามมาตรฐาน C Exec-family
+5. **Atomic Relative Symlink Creation & Safe Extraction:**
+   - คำนวณ Relative Path จากตำแหน่งโฟลเดอร์แม่ของ Symlink ย้อนกลับไปไฟล์ปลายทาง และสร้าง Symlink ชั่วคราว (`.symlink_tmp_*`) ก่อนสั่ง Atomic Rename เพื่อป้องกันการสูญหายของ Symlink ระหว่างกระบวนการสแกนแก้ไข
 
 ---
 *จัดทำขึ้นเพื่อให้การทำงานในระยะยาวเป็นไปได้อย่างสมบูรณ์และโปร่งใสสูงสุด*

@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.spring
@@ -132,6 +133,7 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
 
     val context = LocalContext.current
     var isOverlayEnabled by remember { mutableStateOf(true) }
+    var isOverlayDismissed by remember { mutableStateOf(false) }
 
     fun checkOverlayPermission() {
         isOverlayEnabled = Settings.canDrawOverlays(context)
@@ -178,7 +180,7 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
                 .fillMaxSize()
                 .padding(horizontal = if (maxWidth > 650.dp) 24.dp else 0.dp)
         ) {
-            if (!isOverlayEnabled) {
+            if (!isOverlayEnabled && !isOverlayDismissed) {
                 Surface(
                     color = SurfaceDark,
                     border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
@@ -218,29 +220,43 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
                                 )
                             }
                         }
-                        Button(
-                            onClick = {
-                                try {
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Button(
+                                onClick = {
                                     try {
-                                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                                        val intent = Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
                                         context.startActivity(intent)
-                                    } catch (ex: Exception) {
-                                        android.util.Log.e("AI Assistant", "Could not launch overlay settings", ex)
+                                    } catch (e: Exception) {
+                                        try {
+                                            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                                            context.startActivity(intent)
+                                        } catch (ex: Exception) {
+                                            android.util.Log.e("AI Assistant", "Could not launch overlay settings", ex)
+                                        }
                                     }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Text("Settings", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Settings", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = { isOverlayDismissed = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = Color.White.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -307,7 +323,7 @@ fun MessageBubbleList(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 80.dp),
+                contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(
@@ -421,11 +437,13 @@ fun EmptyTerminalGreeting(onSelectPrompt: (String) -> Unit, modifier: Modifier =
         modifier = modifier
             .fillMaxSize()
             .verticalScroll(scrollState)
-            .padding(start = 24.dp, end = 24.dp, top = 130.dp, bottom = 24.dp),
-        contentAlignment = Alignment.TopCenter
+            .padding(horizontal = 24.dp, vertical = 24.dp),
+        contentAlignment = Alignment.Center
     ) {
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .widthIn(max = 500.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {

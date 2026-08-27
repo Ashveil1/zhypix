@@ -24,7 +24,19 @@ class PtyLaunchSpecTest {
   private fun fakeElf(path: String, context: Context) {
     val f = File(context.filesDir, path)
     f.parentFile?.mkdirs()
-    f.writeBytes(byteArrayOf(0x7f) + "ELF".toByteArray() + ByteArray(16))
+    val header = ByteArray(64)
+    header[0] = 0x7f.toByte()
+    header[1] = 'E'.code.toByte()
+    header[2] = 'L'.code.toByte()
+    header[3] = 'F'.code.toByte()
+    header[20] = 1
+    val abis = android.os.Build.SUPPORTED_ABIS
+    val primaryAbi = if (abis.isNotEmpty()) abis[0] else ""
+    val isArm = primaryAbi.contains("arm") || primaryAbi.contains("aarch64")
+    val eMachine = if (isArm) 0xB7 else 0x3E
+    header[18] = (eMachine and 0xFF).toByte()
+    header[19] = ((eMachine shr 8) and 0xFF).toByte()
+    f.writeBytes(header)
   }
 
   @Test

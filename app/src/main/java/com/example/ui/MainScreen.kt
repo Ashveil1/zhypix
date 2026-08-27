@@ -1,5 +1,6 @@
 package com.example.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -160,6 +161,7 @@ fun MainScreen(viewModel: AgentViewModel) {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             AppDrawerContent(
                 viewModel = viewModel,
@@ -302,7 +304,8 @@ fun MainScreen(viewModel: AgentViewModel) {
                     )
                 )
             },
-            containerColor = Color.Transparent
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets.statusBars
         ) { innerPadding ->
             Box(
                 modifier = Modifier
@@ -312,64 +315,56 @@ fun MainScreen(viewModel: AgentViewModel) {
                             listOf(BackgroundGradientStart, BackgroundGradientEnd)
                         )
                     )
+                    .padding(top = innerPadding.calculateTopPadding())
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding)
-                ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
+                        .fillMaxSize()
+                        .widthIn(max = 840.dp)
+                        .align(Alignment.TopCenter)
                 ) {
                     ChatScreenBody(viewModel)
                 }
             }
-        }
             
-        if (showSettingsModal) {
-                Dialog(
-                    onDismissRequest = {
-                        showSettingsModal = false
-                        viewModel.clearRequestedSettingsSubScreen()
-                    },
-                    properties = DialogProperties(
-                        usePlatformDefaultWidth = false,
-                        decorFitsSystemWindows = false
-                    )
+            if (showSettingsModal) {
+                BackHandler {
+                    showSettingsModal = false
+                    viewModel.clearRequestedSettingsSubScreen()
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(90f)
+                        .background(Brush.verticalGradient(listOf(BackgroundGradientStart, BackgroundGradientEnd)))
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .imePadding()
                 ) {
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize(),
-                        containerColor = Color.Transparent
-                    ) { innerPadding ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Brush.verticalGradient(listOf(BackgroundGradientStart, BackgroundGradientEnd)))
-                                .padding(innerPadding)
-                        ) {
-                            SettingsScreen(
-                                viewModel = viewModel,
-                                onClose = {
-                                    showSettingsModal = false
-                                    viewModel.clearRequestedSettingsSubScreen()
-                                },
-                                initialSubScreen = requestedSettingsSubScreen ?: com.example.model.SettingsScreenType.MAIN
-                            )
-                        }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .widthIn(max = 720.dp)
+                            .align(Alignment.TopCenter)
+                    ) {
+                        SettingsScreen(
+                            viewModel = viewModel,
+                            onClose = {
+                                showSettingsModal = false
+                                viewModel.clearRequestedSettingsSubScreen()
+                            },
+                            initialSubScreen = requestedSettingsSubScreen ?: com.example.model.SettingsScreenType.MAIN
+                        )
                     }
                 }
             }
             
             if (showTerminalScreen) {
-                Dialog(
-                    onDismissRequest = { showTerminalScreen = false },
-                    properties = DialogProperties(usePlatformDefaultWidth = false)
-                ) {
-                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.8f))) {
-                        TerminalScreen(onClose = { showTerminalScreen = false })
-                    }
+                BackHandler {
+                    showTerminalScreen = false
+                }
+                Box(modifier = Modifier.fillMaxSize().zIndex(100f).background(Color.Black)) {
+                    TerminalScreen(onClose = { showTerminalScreen = false })
                 }
             }
         }

@@ -210,7 +210,8 @@ public final class TerminalView extends View {
         });
         mScroller = new Scroller(context);
         AccessibilityManager am = (AccessibilityManager) context.getSystemService(Context.ACCESSIBILITY_SERVICE);
-        mAccessibilityEnabled = am.isEnabled();
+        mAccessibilityEnabled = am != null && am.isEnabled();
+        mRenderer = new TerminalRenderer(12, Typeface.MONOSPACE);
     }
 
 
@@ -451,7 +452,8 @@ public final class TerminalView extends View {
     }
 
     public void setTypeface(Typeface newTypeface) {
-        mRenderer = new TerminalRenderer(mRenderer.mTextSize, newTypeface);
+        int textSize = mRenderer == null ? 12 : mRenderer.mTextSize;
+        mRenderer = new TerminalRenderer(textSize, newTypeface != null ? newTypeface : Typeface.MONOSPACE);
         updateSize();
         invalidate();
     }
@@ -886,7 +888,7 @@ public final class TerminalView extends View {
     public void updateSize() {
         int viewWidth = getWidth();
         int viewHeight = getHeight();
-        if (viewWidth == 0 || viewHeight == 0 || mTermSession == null) return;
+        if (viewWidth == 0 || viewHeight == 0 || mTermSession == null || mRenderer == null) return;
 
         // Set to 80 and 24 if you want to enable vttest.
         int newColumns = Math.max(4, (int) (viewWidth / mRenderer.mFontWidth));
@@ -895,7 +897,9 @@ public final class TerminalView extends View {
         if (mEmulator == null || (newColumns != mEmulator.mColumns || newRows != mEmulator.mRows)) {
             mTermSession.updateSize(newColumns, newRows);
             mEmulator = mTermSession.getEmulator();
-            mClient.onEmulatorSet();
+            if (mClient != null) {
+                mClient.onEmulatorSet();
+            }
 
             // Update mTerminalCursorBlinkerRunnable inner class mEmulator on session change
             if (mTerminalCursorBlinkerRunnable != null)
