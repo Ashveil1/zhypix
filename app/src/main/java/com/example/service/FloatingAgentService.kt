@@ -875,6 +875,11 @@ class FloatingAgentService : Service() {
             layoutParams = FrameLayout.LayoutParams(initialWidth, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
                 gravity = Gravity.BOTTOM or Gravity.END
             }
+            setOnClickListener {
+                if (currentMode == IslandMode.ACTIVE) {
+                    morphIsland(IslandMode.EXPANDED)
+                }
+            }
         }
 
         // --- SUB-VIEW 1: Active / Live Activity Layout ---
@@ -887,6 +892,11 @@ class FloatingAgentService : Service() {
                 LinearLayout.LayoutParams.MATCH_PARENT
             )
             setPadding((12 * density).toInt(), (8 * density).toInt(), (12 * density).toInt(), (8 * density).toInt())
+            setOnClickListener {
+                if (currentMode == IslandMode.ACTIVE) {
+                    morphIsland(IslandMode.EXPANDED)
+                }
+            }
         }
 
         activeIconLayout = FrameLayout(this).apply {
@@ -1677,14 +1687,6 @@ class FloatingAgentService : Service() {
                 expandedLayout.visibility = View.GONE
                 islandContainer.visibility = View.VISIBLE
 
-                controllerParams.width = WindowManager.LayoutParams.MATCH_PARENT
-                controllerParams.height = WindowManager.LayoutParams.MATCH_PARENT
-                controllerParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                try {
-                    windowManager.updateViewLayout(controllerView, controllerParams)
-                } catch (_: Exception) {}
-
                 val targetWidth = (320 * density).toInt()
                 val targetHeight = (64 * density).toInt()
 
@@ -1698,28 +1700,35 @@ class FloatingAgentService : Service() {
                         val f = anim.animatedValue as Float
                         val currW = (startWidth + (targetWidth - startWidth) * f).toInt()
                         val currH = (startHeight + (targetHeight - startHeight) * f).toInt()
-                        val lp = islandContainer.layoutParams as FrameLayout.LayoutParams
-                        lp.width = currW
-                        lp.height = currH
 
-                        val displayMetrics = resources.displayMetrics
-                        val screenW = displayMetrics.widthPixels
-                        val screenH = displayMetrics.heightPixels
+                        // Update window size dynamically
+                        controllerParams.width = currW
+                        controllerParams.height = currH
 
+                        // Position window correctly
                         if (hasBubbleBeenMoved) {
-                            lp.gravity = Gravity.BOTTOM or Gravity.END
-                            val rMargin = (controllerParams.x + (4 * density)).toInt()
-                                .coerceIn((12 * density).toInt(), (screenW - currW - (12 * density).toInt()).coerceAtLeast(0))
-                            val bMargin = (controllerParams.y + (4 * density)).toInt()
-                                .coerceIn((16 * density).toInt(), (screenH - currH - (32 * density).toInt()).coerceAtLeast(0))
-                            lp.rightMargin = rMargin
-                            lp.bottomMargin = bMargin
+                            controllerParams.gravity = Gravity.BOTTOM or Gravity.END
+                            // Keep last dragged position for x and y
                         } else {
-                            lp.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-                            lp.rightMargin = 0
-                            lp.leftMargin = 0
-                            lp.bottomMargin = (40 * density).toInt()
+                            controllerParams.gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                            controllerParams.x = 0
+                            controllerParams.y = (40 * density).toInt()
                         }
+
+                        controllerParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                                                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                        try {
+                            windowManager.updateViewLayout(controllerView, controllerParams)
+                        } catch (_: Exception) {}
+
+                        // Ensure islandContainer fills the window exactly
+                        val lp = islandContainer.layoutParams as FrameLayout.LayoutParams
+                        lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+                        lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+                        lp.rightMargin = 0
+                        lp.bottomMargin = 0
+                        lp.leftMargin = 0
+                        lp.topMargin = 0
                         islandContainer.layoutParams = lp
                     }
                 }

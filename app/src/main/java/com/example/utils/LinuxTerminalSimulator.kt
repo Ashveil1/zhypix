@@ -3499,9 +3499,8 @@ object LinuxTerminalSimulator {
             )
         }
 
-        // Fallback to BusyBox or Android host shell (/system/bin/sh)
-        val busybox = resolveBusyboxFile()
-        val executable = busybox?.absolutePath ?: if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
+        // Fallback to Android host shell (/system/bin/sh) directly to avoid SELinux W^X blocks on API 29+
+        val executable = if (File("/system/bin/sh").exists()) "/system/bin/sh" else "sh"
         val env = mutableMapOf(
             "PATH" to "/system/bin:/system/xbin:${context.applicationInfo.nativeLibraryDir}:${File(context.filesDir, "lib").absolutePath}",
             "LD_LIBRARY_PATH" to "${File(context.filesDir, "lib").absolutePath}:${context.applicationInfo.nativeLibraryDir}",
@@ -3516,7 +3515,7 @@ object LinuxTerminalSimulator {
         return PtyLaunchSpec(
             executablePath = executable,
             cwd = globalRealDirectory.takeIf { it.isDirectory }?.absolutePath ?: context.filesDir.absolutePath,
-            args = if (busybox != null) listOf("sh") else listOf(executable),
+            args = listOf(executable),
             env = env.map { (k, v) -> "$k=$v" },
             distroAlias = null
         )
