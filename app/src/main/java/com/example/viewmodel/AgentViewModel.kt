@@ -2848,26 +2848,34 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         
                         if (base64Img == null && service != null && !isLinuxDesktop) {
                             val normAct = act.uppercase().trim()
-                            val actionDelayMs = when {
-                                normAct == "OPEN_APP" -> 1200L
-                                else -> 450L
-                            }
-                            addReasoningStep("Post-Action Settlement Delay (${actionDelayMs}ms)", "Waiting ${actionDelayMs.toFloat() / 1000f}s after $act before capturing screenshot...", "RUNNING", "SYSTEM")
-                            kotlinx.coroutines.delay(actionDelayMs)
-                            
+                            // Event-driven settle: wait until the AccessibilityEvent stream
+                            // goes quiet (120ms without events) instead of a fixed sleep.
+                            // Typical taps settle in ~150-300ms vs the old fixed 450ms,
+                            // and app launches break early instead of always waiting 1200ms.
+                            val settleCapMs = if (normAct == "OPEN_APP") 2500L else 900L
+                            val waitedMs = service.awaitEventQuiet(quietMs = 120L, maxWaitMs = settleCapMs)
+                            addReasoningStep("Post-Action Event Settle (${waitedMs}ms)", "Accessibility event stream quiet after $act (cap ${settleCapMs}ms).", "RUNNING", "SYSTEM")
+
                             _lastScreenshot.value = null
                             service.invalidateScreenshotCache()
                             postActionHierarchy = service.getActiveWindowHierarchy()
-                            
-                            addReasoningStep("Capturing Post-Action Viewport", "Taking viewport screenshot after $act...", "RUNNING", "SYSTEM")
-                            base64Img = service.awaitFrameSettle(maxWaitMs = 3500L, forceFresh = true)
-                            if (base64Img != null) {
-                                _lastScreenshot.value = base64Img
-                                _lastHierarchy.value = postActionHierarchy
-                                addReasoningStep("Viewport snapshot synced", "Successfully captured post-action frame & screen layout hierarchy.", "SUCCESS", "SYSTEM")
+
+                            // Capture a screenshot only when the active model can actually
+                            // see it. In tree-only mode this saves up to 3.5s per step.
+                            if (isVisionActive()) {
+                                addReasoningStep("Capturing Post-Action Viewport", "Taking viewport screenshot after $act...", "RUNNING", "SYSTEM")
+                                base64Img = service.awaitFrameSettle(maxWaitMs = 3500L, forceFresh = true)
+                                if (base64Img != null) {
+                                    _lastScreenshot.value = base64Img
+                                    _lastHierarchy.value = postActionHierarchy
+                                    addReasoningStep("Viewport snapshot synced", "Successfully captured post-action frame & screen layout hierarchy.", "SUCCESS", "SYSTEM")
+                                } else {
+                                    _lastScreenshot.value = null
+                                    addReasoningStep("Viewport snapshot skipped", "Screenshot callback timed out or unavailable. Relying on layout hierarchy.", "WARNING", "SYSTEM")
+                                }
                             } else {
-                                _lastScreenshot.value = null
-                                addReasoningStep("Viewport snapshot skipped", "Screenshot callback timed out or unavailable. Relying on layout hierarchy.", "WARNING", "SYSTEM")
+                                _lastHierarchy.value = postActionHierarchy
+                                addReasoningStep("Viewport snapshot skipped (tree-only mode)", "Active model has no vision; using layout hierarchy only. Screenshot capture skipped.", "SUCCESS", "SYSTEM")
                             }
                         }
 

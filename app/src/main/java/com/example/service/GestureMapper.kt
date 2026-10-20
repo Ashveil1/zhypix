@@ -96,6 +96,16 @@ object GestureMapper {
                         val cy = screenH / 2f
 
                         if (cleanTarget in listOf("UP", "SCROLL_UP", "PAGE_UP", "DOWN", "SCROLL_DOWN", "PAGE_DOWN", "LEFT", "RIGHT")) {
+                            // Native accessibility scroll is faster and more reliable than a swipe
+                            val nativeDir = when {
+                                cleanTarget.contains("UP") -> "UP"
+                                cleanTarget.contains("DOWN") -> "DOWN"
+                                cleanTarget.contains("LEFT") -> "LEFT"
+                                else -> "RIGHT"
+                            }
+                            if (service.scrollSmart(nativeDir)) {
+                                return ActionResult(true, "Scrolled $nativeDir using native accessibility scroll.")
+                            }
                             val (sx, sy, ex, ey) = when {
                                 cleanTarget.contains("UP") -> listOf(cx, cy * 1.4f, cx, cy * 0.4f)
                                 cleanTarget.contains("DOWN") -> listOf(cx, cy * 0.4f, cx, cy * 1.4f)
