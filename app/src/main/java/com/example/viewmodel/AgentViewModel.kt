@@ -1215,7 +1215,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         "properties" to mapOf(
                             "action_type" to mapOf(
                                 "type" to "STRING",
-                                "description" to "Must be one of: CLICK, SWIPE, OBSERVE, TYPE, OPEN_APP, BACK, HOME"
+                                "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, OBSERVE, TYPE, OPEN_APP, BACK, HOME"
                             ),
                             "target" to mapOf(
                                 "type" to "STRING",
@@ -1639,6 +1639,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                            - By Coordinates: `target = "X,Y"` (use `Center=(X,Y)` directly from Screen Hierarchy).
                            - By Element Text/Description: `target = "Send"`, `target = "Search"`, `target = "YouTube"`, `target = "Play"`.
                          * `SWIPE`: Direction `target = "UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`.
+                         * `DOUBLE_CLICK`: Same target formats as CLICK. Use for zoom toggles or double-tap-to-select UIs.
+                         * `LONG_PRESS`: Same target formats as CLICK. Use to open context menus, select text, or start drags.
                          * `TYPE`: `target = "text to type"` (Inputs text into focused field).
                          * `GLOBAL_ACTION` / `BACK` / `HOME`: `target = "BACK"` or `target = "HOME"`.
                          * `OPEN_APP`: `target = "App Name"` (e.g. "YouTube", "LINE", "Chrome", "Settings").
@@ -2009,7 +2011,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                     "properties" to mapOf(
                                         "action_type" to mapOf(
                                             "type" to "string",
-                                            "description" to "Must be one of: CLICK, SWIPE, TYPE, OPEN_APP, GLOBAL_ACTION, BACK, HOME, OBSERVE, WAIT"
+                                            "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, TYPE, OPEN_APP, GLOBAL_ACTION, BACK, HOME, OBSERVE, WAIT"
                                         ),
                                         "target" to mapOf(
                                             "type" to "string",
@@ -2895,9 +2897,24 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             addReasoningStep("Precondition Guard Alert", "Target '$tgt' missing or not visible on screen. Skipping action to prevent misclicks.", "WARNING", "TOOL")
                         }
                         
-                        val actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
-                        val actionResult = actionOutcome.result
+                        var actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
+                        var actionResult = actionOutcome.result
                         recordActionExecuted()
+
+                        // One bounded retry for failed gesture actions: transient
+                        // dispatch failures (system cancelled the gesture mid-animation,
+                        // window churn) often succeed on a single retry after 1s.
+                        // Non-gesture actions and terminal/blocked outcomes are never retried.
+                        val retryableGestureActions = setOf("CLICK", "TAP", "DOUBLE_CLICK", "DOUBLE_TAP", "LONG_PRESS", "LONG_CLICK", "PRESS_AND_HOLD", "SWIPE", "SCROLL")
+                        if (!actionResult.success && act in retryableGestureActions && service != null && !turnAbortRequested) {
+                            addReasoningStep("Retrying failed gesture", "Action $act failed once ('${actionResult.message}'). Retrying once after 1s.", "RUNNING", "TOOL")
+                            kotlinx.coroutines.delay(1000L)
+                            actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
+                            actionResult = actionOutcome.result
+                            if (actionResult.success) {
+                                addReasoningStep("Gesture retry succeeded", "Action: $act succeeded on retry.", "SUCCESS", "TOOL")
+                            }
+                        }
 
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = false

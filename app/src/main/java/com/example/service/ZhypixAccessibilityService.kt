@@ -208,6 +208,15 @@ class ZhypixAccessibilityService : AccessibilityService() {
         lastAgentGestureTime = System.currentTimeMillis()
         invalidateScreenshotCache()
 
+        // Never tap zhypix's own floating overlay: a gesture landing there would
+        // hit our UI instead of the target app (self-overlay exclusion region).
+        FloatingAgentService.instance?.getOverlayBoundsOnScreen()?.let { r ->
+            if (r.contains(x.toInt(), y.toInt())) {
+                Log.w("Zhypix", "Skipping click at ($x, $y): point is inside zhypix's own overlay $r")
+                return false
+            }
+        }
+
         // Human-like Gaussian jitter and fast responsive touch dwell time.
         // When element bounds are known the jitter is constrained inside the
         // element so small targets are never missed because of jitter.
@@ -257,6 +266,78 @@ class ZhypixAccessibilityService : AccessibilityService() {
             invalidateScreenshotCache()
         }
         return res
+    }
+
+    private suspend fun dispatchGestureAndAwait(builder: GestureDescription.Builder, feedbackX: Float, feedbackY: Float): Boolean {
+        val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try {
+                val ok = dispatchGesture(builder.build(), object : GestureResultCallback() {
+                    override fun onCompleted(gestureDescription: GestureDescription?) {
+                        visualizerView?.showClickFeedback(feedbackX, feedbackY)
+                        invalidateScreenshotCache()
+                        deferred.complete(true)
+                    }
+                    override fun onCancelled(gestureDescription: GestureDescription?) {
+                        Log.w("Zhypix", "Gesture cancelled on Android at ($feedbackX, $feedbackY)")
+                        invalidateScreenshotCache()
+                        deferred.complete(false)
+                    }
+                }, null)
+                if (!ok) {
+                    Log.e("Zhypix", "dispatchGesture returned false")
+                    invalidateScreenshotCache()
+                    deferred.complete(false)
+                }
+            } catch (e: Exception) {
+                Log.e("Zhypix", "Exception during gesture dispatch", e)
+                invalidateScreenshotCache()
+                deferred.complete(false)
+            }
+        }
+        return kotlinx.coroutines.withTimeoutOrNull(2000L) { deferred.await() } ?: false
+    }
+
+    suspend fun dispatchDoubleClick(x: Float, y: Float, bounds: Rect? = null): Boolean {
+        lastAgentGestureTime = System.currentTimeMillis()
+        invalidateScreenshotCache()
+        FloatingAgentService.instance?.getOverlayBoundsOnScreen()?.let { r ->
+            if (r.contains(x.toInt(), y.toInt())) {
+                Log.w("Zhypix", "Skipping double-click at ($x, $y): inside zhypix's own overlay")
+                return false
+            }
+        }
+        val (tx, ty) = BezierGestureSynthesizer.applyHumanClickJitter(x, y, bounds)
+        val path = Path()
+        path.moveTo(tx, ty)
+        path.lineTo(tx + 1.0f, ty + 1.0f)
+        val firstTap = GestureDescription.StrokeDescription(path, 0, 30)
+        val builder = GestureDescription.Builder()
+        builder.addStroke(firstTap)
+        // Second tap ~175ms after the first, matching platform double-tap timing.
+        builder.addStroke(firstTap.continueStroke(path, 175, 30, false))
+        return dispatchGestureAndAwait(builder, tx, ty)
+    }
+
+    suspend fun dispatchLongPress(x: Float, y: Float, bounds: Rect? = null): Boolean {
+        lastAgentGestureTime = System.currentTimeMillis()
+        invalidateScreenshotCache()
+        FloatingAgentService.instance?.getOverlayBoundsOnScreen()?.let { r ->
+            if (r.contains(x.toInt(), y.toInt())) {
+                Log.w("Zhypix", "Skipping long-press at ($x, $y): inside zhypix's own overlay")
+                return false
+            }
+        }
+        val (tx, ty) = BezierGestureSynthesizer.applyHumanClickJitter(x, y, bounds)
+        val path = Path()
+        path.moveTo(tx, ty)
+        path.lineTo(tx + 1.0f, ty + 1.0f)
+        // Hold slightly past the platform long-press timeout so apps reliably
+        // register it as a long press (context menus, selection, drag start).
+        val holdMs = android.view.ViewConfiguration.getLongPressTimeout().toLong() + 100L
+        val builder = GestureDescription.Builder()
+        builder.addStroke(GestureDescription.StrokeDescription(path, 0, holdMs))
+        return dispatchGestureAndAwait(builder, tx, ty)
     }
 
     suspend fun dispatchSwipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long = 180): Boolean {
@@ -555,53 +636,101 @@ class ZhypixAccessibilityService : AccessibilityService() {
         return null
     }
 
-    suspend fun clickSmart(target: String): ActionResult {
+    private enum class SmartGesture { CLICK, DOUBLE_CLICK, LONG_PRESS }
+
+    suspend fun clickSmart(target: String): ActionResult = gestureSmart(target, SmartGesture.CLICK)
+    suspend fun doubleClickSmart(target: String): ActionResult = gestureSmart(target, SmartGesture.DOUBLE_CLICK)
+    suspend fun longPressSmart(target: String): ActionResult = gestureSmart(target, SmartGesture.LONG_PRESS)
+
+    private suspend fun gestureSmart(target: String, mode: SmartGesture): ActionResult {
         lastAgentGestureTime = System.currentTimeMillis()
         invalidateScreenshotCache()
         val selector = ElementSelector.parse(target)
         val resolved = ElementResolver.resolve(this, selector)
+
+        val actionName = when (mode) {
+            SmartGesture.CLICK -> "clicked"
+            SmartGesture.DOUBLE_CLICK -> "double-clicked"
+            SmartGesture.LONG_PRESS -> "long-pressed"
+        }
 
         if (resolved != null) {
             val node = resolved.node
             val cx = resolved.centerX
             val cy = resolved.centerY
 
-            var clicked = false
-            try {
-                if (node.isClickable) {
-                    clicked = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                }
-            } catch (e: Exception) {
-                clicked = false
-            }
-
-            if (!clicked) {
-                var parent = try { node.parent } catch (e: Exception) { null }
-                while (parent != null && !clicked) {
-                    if (parent.isClickable) {
-                        try {
-                            clicked = parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        } catch (e: Exception) {}
+            var acted = false
+            when (mode) {
+                SmartGesture.CLICK -> {
+                    try {
+                        if (node.isClickable) {
+                            acted = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        }
+                    } catch (e: Exception) {
+                        acted = false
                     }
-                    if (!clicked) {
-                        parent = try { parent.parent } catch (e: Exception) { null }
+
+                    if (!acted) {
+                        var parent = try { node.parent } catch (e: Exception) { null }
+                        while (parent != null && !acted) {
+                            if (parent.isClickable) {
+                                try {
+                                    acted = parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                } catch (e: Exception) {}
+                            }
+                            if (!acted) {
+                                parent = try { parent.parent } catch (e: Exception) { null }
+                            }
+                        }
+                    }
+
+                    if (!acted) {
+                        acted = dispatchClick(cx, cy, resolved.bounds)
+                    } else {
+                        visualizerView?.showClickFeedback(cx, cy)
                     }
                 }
-            }
+                SmartGesture.LONG_PRESS -> {
+                    try {
+                        if (node.isLongClickable) {
+                            acted = node.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+                        }
+                    } catch (e: Exception) {
+                        acted = false
+                    }
 
-            if (!clicked) {
-                clicked = dispatchClick(cx, cy, resolved.bounds)
-            } else {
-                visualizerView?.showClickFeedback(cx, cy)
+                    if (!acted) {
+                        var parent = try { node.parent } catch (e: Exception) { null }
+                        while (parent != null && !acted) {
+                            if (parent.isLongClickable) {
+                                try {
+                                    acted = parent.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+                                } catch (e: Exception) {}
+                            }
+                            if (!acted) {
+                                parent = try { parent.parent } catch (e: Exception) { null }
+                            }
+                        }
+                    }
+
+                    if (!acted) {
+                        acted = dispatchLongPress(cx, cy, resolved.bounds)
+                    } else {
+                        visualizerView?.showClickFeedback(cx, cy)
+                    }
+                }
+                SmartGesture.DOUBLE_CLICK -> {
+                    acted = dispatchDoubleClick(cx, cy, resolved.bounds)
+                }
             }
 
             try { node.recycle() } catch (e: Exception) {}
 
             val uniquenessInfo = if (resolved.isUnique) "unique match" else "selected best of ${resolved.totalMatchesCount} matches"
-            if (clicked) {
-                return ActionResult(true, "Successfully clicked element layer=${resolved.matchType} ($uniquenessInfo) at ($cx, $cy)")
+            return if (acted) {
+                ActionResult(true, "Successfully $actionName element layer=${resolved.matchType} ($uniquenessInfo) at ($cx, $cy)")
             } else {
-                return ActionResult(false, "Found element layer=${resolved.matchType} at ($cx, $cy) but click action failed")
+                ActionResult(false, "Found element layer=${resolved.matchType} at ($cx, $cy) but $actionName action failed")
             }
         }
 
@@ -609,11 +738,20 @@ class ZhypixAccessibilityService : AccessibilityService() {
         if (selector.x != null && selector.y != null) {
             val fx = selector.x.toFloat()
             val fy = selector.y.toFloat()
-            val ok = dispatchClick(fx, fy)
+            val ok = when (mode) {
+                SmartGesture.CLICK -> dispatchClick(fx, fy)
+                SmartGesture.DOUBLE_CLICK -> dispatchDoubleClick(fx, fy)
+                SmartGesture.LONG_PRESS -> dispatchLongPress(fx, fy)
+            }
+            val rawName = when (mode) {
+                SmartGesture.CLICK -> "click"
+                SmartGesture.DOUBLE_CLICK -> "double-click"
+                SmartGesture.LONG_PRESS -> "long-press"
+            }
             return if (ok) {
-                ActionResult(true, "Dispatched raw click gesture at ($fx, $fy)")
+                ActionResult(true, "Dispatched raw $rawName gesture at ($fx, $fy)")
             } else {
-                ActionResult(false, "Failed to dispatch click gesture at ($fx, $fy)")
+                ActionResult(false, "Failed to dispatch $rawName gesture at ($fx, $fy)")
             }
         }
 
@@ -816,7 +954,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
             return editableFound
         }
 
-        if (cleanAct == "CLICK" || cleanAct == "TAP") {
+        if (cleanAct in listOf("CLICK", "TAP", "DOUBLE_CLICK", "DOUBLE_TAP", "LONG_PRESS", "LONG_CLICK", "PRESS_AND_HOLD")) {
             val parts = cleanTgt.split(",")
             if (parts.size == 2 && parts[0].trim().toFloatOrNull() != null && parts[1].trim().toFloatOrNull() != null) {
                 // Coordinate click - verify we have an active window root

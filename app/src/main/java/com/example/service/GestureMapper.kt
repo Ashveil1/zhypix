@@ -87,6 +87,12 @@ object GestureMapper {
                     "CLICK", "TAP" -> {
                         return service.clickSmart(target)
                     }
+                    "DOUBLE_CLICK", "DOUBLE_TAP" -> {
+                        return service.doubleClickSmart(target)
+                    }
+                    "LONG_PRESS", "LONG_CLICK", "PRESS_AND_HOLD" -> {
+                        return service.longPressSmart(target)
+                    }
                     "SWIPE", "SCROLL" -> {
                         val cleanTarget = target.uppercase().trim()
                         val displayMetrics = service.resources.displayMetrics
