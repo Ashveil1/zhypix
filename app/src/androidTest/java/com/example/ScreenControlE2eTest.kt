@@ -83,6 +83,23 @@ class ScreenControlE2eTest {
 
     private fun logAccessibilityState(tag: String) {
         try {
+            val pkg = device.executeShellCommand("dumpsys package com.zhypix.app.jdufyx")
+            val stopped = pkg.lines().firstOrNull { it.contains("stopped=") }?.trim()
+                ?: pkg.lines().firstOrNull { it.contains("pkgFlags") }?.trim() ?: "?"
+            Log.e("E2E-DIAG", "[$tag] package state: $stopped")
+        } catch (e: Exception) {
+            Log.e("E2E-DIAG", "[$tag] package dumpsys failed", e)
+        }
+        try {
+            val resolve = device.executeShellCommand(
+                "cmd package resolve-service --brief com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService 2>&1 || " +
+                    "pm dump com.zhypix.app.jdufyx | grep -m2 -A1 ZhypixAccessibilityService"
+            )
+            Log.e("E2E-DIAG", "[$tag] resolve-service: " + resolve.lines().take(4).joinToString(" | "))
+        } catch (e: Exception) {
+            Log.e("E2E-DIAG", "[$tag] resolve failed", e)
+        }
+        try {
             val out = device.executeShellCommand("dumpsys accessibility")
             val lines = out.lines().filter {
                 it.contains("Enabled services") || it.contains("Crashed services") ||
