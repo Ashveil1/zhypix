@@ -66,14 +66,22 @@ fun AppDrawerContent(
                 .navigationBarsPadding()
         ) {
             // Header Bar - Clean minimalist logo integrated with background
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 12.dp),
-                contentAlignment = Alignment.CenterStart
+                    .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 IsometricCube(
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(30.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Zhypix",
+                    color = TextPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.2.sp
                 )
             }
 
@@ -82,14 +90,14 @@ fun AppDrawerContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(Color.White)
                     .clickable {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         viewModel.startNewSession()
                         onCloseDrawer()
                     }
-                    .padding(vertical = 10.dp, horizontal = 14.dp),
+                    .padding(vertical = 12.dp, horizontal = 14.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -163,14 +171,14 @@ fun AppDrawerContent(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) Color.White.copy(alpha = 0.08f) else Color.Transparent)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) Color.White.copy(alpha = 0.09f) else Color.Transparent)
                                 .clickable {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     viewModel.loadSession(session.id)
                                     onCloseDrawer()
                                 }
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
@@ -230,12 +238,12 @@ fun AppDrawerContent(
                     },
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(CardBg)
                         .border(
                             1.dp,
                             if (isHighlight) SuccessGreen.copy(alpha = 0.35f) else BorderSubtle,
-                            RoundedCornerShape(10.dp)
+                            RoundedCornerShape(12.dp)
                         )
                 ) {
                     Icon(
@@ -255,9 +263,9 @@ fun AppDrawerContent(
                     },
                     modifier = Modifier
                         .size(44.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(CardBg)
-                        .border(1.dp, BorderSubtle, RoundedCornerShape(10.dp))
+                        .border(1.dp, BorderSubtle, RoundedCornerShape(12.dp))
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.Settings,

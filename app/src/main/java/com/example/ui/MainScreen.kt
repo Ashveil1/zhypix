@@ -142,7 +142,7 @@ fun MainScreen(viewModel: AgentViewModel) {
                         sessionToDelete?.let { viewModel.deleteSession(it.id) }
                         sessionToDelete = null
                     },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                    colors = ButtonDefaults.textButtonColors(contentColor = CrimsonRose)
                 ) {
                     Text("Delete", fontWeight = FontWeight.Bold)
                 }
@@ -155,7 +155,8 @@ fun MainScreen(viewModel: AgentViewModel) {
                     Text("Cancel")
                 }
             },
-            containerColor = SurfaceDark,
+            containerColor = SurfaceElevated,
+            shape = RoundedCornerShape(24.dp),
             tonalElevation = 6.dp
         )
     }
@@ -186,38 +187,39 @@ fun MainScreen(viewModel: AgentViewModel) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(Color(0xFF18181B))
-                                    .border(1.dp, Color(0xFF27272A), RoundedCornerShape(20.dp))
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(SurfaceElevated)
+                                    .border(1.dp, SurfaceLightBorder, RoundedCornerShape(24.dp))
                                     .clickable { showModelDropdown = true }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .padding(horizontal = 14.dp, vertical = 7.dp)
                             ) {
-                                Text(
-                                    activeModel,
-                                    color = Color(0xFFFAFAFA),
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 13.sp
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Change Model",
-                                    tint = Color(0xFFA1A1AA),
-                                    modifier = Modifier.size(16.dp)
-                                )
                                 Box(
                                     modifier = Modifier
                                         .size(7.dp)
                                         .clip(CircleShape)
-                                        .background(if (isProcessing) Color.White else Color(0xFF71717A))
+                                        .background(if (isProcessing) SuccessGreen else TextTertiary)
+                                )
+                                Text(
+                                    activeModel,
+                                    color = TextPrimary,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    maxLines = 1
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Change Model",
+                                    tint = TextTertiary,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
 
                             DropdownMenu(
                                 expanded = showModelDropdown,
                                 onDismissRequest = { showModelDropdown = false },
+                                shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier
-                                    .background(Color(0xFF18181B))
-                                    .border(1.dp, Color(0xFF27272A), RoundedCornerShape(12.dp))
+                                    .background(SurfaceElevated)
+                                    .border(1.dp, SurfaceLightBorder, RoundedCornerShape(16.dp))
                             ) {
                                 Text(
                                     text = "PROVIDER: ${providerState.uppercase()}",
@@ -227,7 +229,7 @@ fun MainScreen(viewModel: AgentViewModel) {
                                     fontFamily = FontFamily.Monospace,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                 )
-                                HorizontalDivider(color = Color(0xFF27272A))
+                                HorizontalDivider(color = SurfaceLightBorder)
 
                                 // Models come only from the configured provider's live model list.
                                 val currentFetchedModels = fetchedModelsState.mapNotNull { it.modelId ?: it.id }.distinct()
@@ -272,7 +274,7 @@ fun MainScreen(viewModel: AgentViewModel) {
                                     )
                                 }
 
-                                HorizontalDivider(color = Color(0xFF27272A))
+                                HorizontalDivider(color = SurfaceLightBorder)
                                 DropdownMenuItem(
                                     text = {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -293,17 +295,17 @@ fun MainScreen(viewModel: AgentViewModel) {
                         Box(
                             modifier = Modifier
                                 .padding(start = 12.dp)
-                                .size(36.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF18181B))
-                                .border(1.dp, Color(0xFF27272A), CircleShape)
+                                .background(SurfaceElevated)
+                                .border(1.dp, SurfaceLightBorder, CircleShape)
                                 .clickable { scope.launch { drawerState.open() } },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Menu,
                                 contentDescription = "Menu",
-                                tint = Color(0xFFFAFAFA),
+                                tint = TextPrimary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -428,11 +430,11 @@ fun WizardChecklistRow(
     onClick: () -> Unit
 ) {
     Surface(
-        color = SurfaceDark.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(12.dp),
+        color = SurfaceDark,
+        shape = RoundedCornerShape(16.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isActive) Color.White.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.04f)
+            if (isActive) SuccessGreen.copy(alpha = 0.22f) else SurfaceLightBorder
         ),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -452,8 +454,8 @@ fun WizardChecklistRow(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (isActive) "Authorized" else "Action Required",
-                        color = if (isActive) SuccessGreen else TextSecondary.copy(alpha = 0.8f),
+                        text = if (isActive) "Authorized" else "Action required",
+                        color = if (isActive) SuccessGreen else OrangeWarning,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -464,10 +466,10 @@ fun WizardChecklistRow(
                 if (!isActive) {
                     Button(
                         onClick = onClick,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black),
+                        colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = OnAccent),
                         contentPadding = PaddingValues(horizontal = 14.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(30.dp)
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.height(32.dp)
                     ) {
                         Text(
                             actionLabel,
@@ -477,9 +479,9 @@ fun WizardChecklistRow(
                     }
                 } else {
                     Surface(
-                        color = SuccessGreen.copy(alpha = 0.08f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, SuccessGreen.copy(alpha = 0.25f)),
-                        shape = RoundedCornerShape(8.dp)
+                        color = SuccessGreen.copy(alpha = 0.10f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SuccessGreen.copy(alpha = 0.30f)),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -519,9 +521,9 @@ fun ClaudeGroupedCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        color = SurfaceDark.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+        color = SurfaceDark,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, SurfaceLightBorder),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -553,22 +555,22 @@ fun ClaudeSettingRow(
         ) {
             Box(
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(36.dp)
                     .background(
-                        if (isExpanded) CyanAccent.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.04f),
-                        RoundedCornerShape(8.dp)
+                        if (isExpanded) Color.White.copy(alpha = 0.12f) else SurfaceElevated,
+                        RoundedCornerShape(10.dp)
                     )
                     .border(
                         1.dp,
-                        if (isExpanded) CyanAccent.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.06f),
-                        RoundedCornerShape(8.dp)
+                        if (isExpanded) Color.White.copy(alpha = 0.30f) else SurfaceLightBorder,
+                        RoundedCornerShape(10.dp)
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (isExpanded) CyanAccent else TextPrimary,
+                    tint = if (isExpanded) Accent else TextPrimary,
                     modifier = Modifier.size(18.dp)
                 )
             }
@@ -590,7 +592,7 @@ fun ClaudeSettingRow(
                         Surface(
                             color = badgeColor.copy(alpha = 0.12f),
                             border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.3f)),
-                            shape = RoundedCornerShape(6.dp)
+                            shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
                                 text = badgeText,
@@ -650,8 +652,8 @@ fun ClaudeSettingRow(
 
         if (showDivider) {
             HorizontalDivider(
-                color = Color.White.copy(alpha = 0.06f),
-                modifier = Modifier.padding(start = 64.dp)
+                color = SurfaceLightBorder.copy(alpha = 0.6f),
+                modifier = Modifier.padding(start = 66.dp)
             )
         }
     }
@@ -665,13 +667,13 @@ fun SettingSectionCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        color = SurfaceDark.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+        color = SurfaceDark,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, SurfaceLightBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (title != null) {
