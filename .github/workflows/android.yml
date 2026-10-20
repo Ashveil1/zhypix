@@ -119,6 +119,7 @@ jobs:
             adb exec-out run-as com.zhypix.app.jdufyx cat files/gesture-evidence.txt > gesture-evidence.txt || true
             adb shell screencap -p /sdcard/gesture_final.png || true
             adb pull /sdcard/gesture_final.png gesture_final.png || true
+            grep -q "OK (1 test)" gesture_output.txt || touch /tmp/e2e_failed
             if grep -q "FAILURES!!!" instrument_output.txt; then touch /tmp/e2e_failed; fi
             grep -q "OK (" instrument_output.txt || touch /tmp/e2e_failed
             adb logcat -d > logcat.txt || true
