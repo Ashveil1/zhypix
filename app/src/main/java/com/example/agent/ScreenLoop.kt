@@ -14,7 +14,7 @@ class ScreenLoop(
 ) {
     data class Observation(val image: String?, val phoneState: String, val metadata: String)
     data class Execution(val success: Boolean, val message: String, val safeToRetry: Boolean = false)
-    private val mutex = Mutex()
+    companion object { private val mutex = Mutex() }
 
     suspend fun run(maxSteps: Int = ScreenPolicy.MAX_STEPS, postActionMs: Long = ScreenPolicy.DEFAULT_POST_ACTION_MS): ScreenAction.Terminal {
         require(maxSteps in 1..ScreenPolicy.MAX_STEPS)

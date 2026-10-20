@@ -105,6 +105,12 @@ class ScreenActionsTest {
     }
 
     @Test
+    fun multipleActionsAreRejected() {
+        assertTrue(ActionParser.parse("""click({"x":1,"y":2})
+press_home({})""") is ActionParseResult.Invalid)
+    }
+
+    @Test
     fun unknownNameIsInvalid() {
         val r = ActionParser.parse("""teleport({"x":1,"y":2})""")
         assertTrue(r is ActionParseResult.Invalid)

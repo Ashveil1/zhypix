@@ -58,11 +58,16 @@ class ScreenObservation(private val service: ZhypixAccessibilityService) {
                             try {
                                 wrapped=Bitmap.wrapHardwareBuffer(result.hardwareBuffer,result.colorSpace)
                                 software=wrapped?.copy(Bitmap.Config.ARGB_8888,false)
-                            } finally {wrapped?.recycle();result.hardwareBuffer.close()}
+                            } catch (_:Exception) { software=null } finally {wrapped?.recycle();result.hardwareBuffer.close()}
                             if(!pending.complete(software)) software?.recycle()
                         }
                     })
-                    val bitmap=withTimeoutOrNull(ScreenPolicy.CAPTURE_TIMEOUT_MS){pending.await()} ?: return@withContext null
+                    val bitmap=try {
+                        withTimeoutOrNull(ScreenPolicy.CAPTURE_TIMEOUT_MS){pending.await()}
+                    } finally {
+                        // A screenshot callback can arrive after cancellation/timeout.
+                        if (!pending.isCompleted) pending.cancel()
+                    } ?: return@withContext null
                     withContext(Dispatchers.Default) {
                         try {
                             val scale=(ScreenPolicy.AGENT_IMAGE_LONG_SIDE.toFloat()/maxOf(bitmap.width,bitmap.height)).coerceAtMost(1f)

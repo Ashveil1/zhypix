@@ -1,6 +1,7 @@
 package com.example.agent
 
 import org.json.JSONObject
+import org.json.JSONTokener
 
 /**
  * Screen-control action language, rebuilt from scratch.
@@ -11,7 +12,7 @@ import org.json.JSONObject
  *
  * Terminal actions end the task instead of manipulating the screen.
  * This parser is deliberately strict about the outer shape and lenient
- * about argument types (numbers may arrive as strings, booleans as "true").
+ * about numeric argument types (finite numbers may arrive as strings).
  */
 sealed class ScreenAction {
 
@@ -108,7 +109,10 @@ object ActionParser {
             JSONObject()
         } else {
             try {
-                JSONObject(rawArgs)
+                val tokener = JSONTokener(rawArgs)
+                val value = tokener.nextValue()
+                require(value is JSONObject && tokener.nextClean() == '\u0000') { "Expected exactly one JSON object" }
+                value
             } catch (e: Exception) {
                 return ActionParseResult.Invalid("bad JSON args for $name: ${e.message}")
             }
