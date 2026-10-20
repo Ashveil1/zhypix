@@ -192,7 +192,8 @@ class FloatingAgentService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or 
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE, // Completely click-through
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+            WindowManager.LayoutParams.FLAG_SECURE, // Click-through + hidden from screenshots
             PixelFormat.TRANSLUCENT
         )
         layoutParams.gravity = Gravity.CENTER_VERTICAL or Gravity.START
@@ -212,7 +213,8 @@ class FloatingAgentService : Service() {
             collapsedSize,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+            WindowManager.LayoutParams.FLAG_SECURE, // Hidden from agent screenshots
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.END
@@ -247,6 +249,28 @@ class FloatingAgentService : Service() {
         super.onConfigurationChanged(newConfig)
         val isDarkMode = (newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         updateTextColors(isDarkMode)
+    }
+
+    /**
+     * While the agent is executing a task the interactive controller bubble
+     * dims and stops intercepting touches, so it neither covers targets nor
+     * eats taps meant for the app underneath. Restored when the task ends.
+     */
+    fun setAgentActive(active: Boolean) {
+        if (!::controllerView.isInitialized || !::controllerParams.isInitialized) return
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            try {
+                controllerParams.flags = if (active) {
+                    controllerParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                } else {
+                    controllerParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                }
+                controllerView.alpha = if (active) 0.35f else 1.0f
+                windowManager.updateViewLayout(controllerView, controllerParams)
+            } catch (e: Exception) {
+                android.util.Log.w("FloatingAgent", "setAgentActive failed", e)
+            }
+        }
     }
 
     private fun createFloatingView(windowLayoutParams: WindowManager.LayoutParams): View {
