@@ -814,12 +814,19 @@ fun BottomInputBar(
     viewModel: AgentViewModel,
     onSend: (String) -> Unit,
     isProcessing: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenLive: (() -> Unit)? = null
 ) {
     var text by remember { mutableStateOf("") }
     val context = LocalContext.current
     val isListening by viewModel.sttManager.isListening.collectAsState()
     val partialText by viewModel.sttManager.partialText.collectAsState()
+    val provider by viewModel.provider.collectAsState()
+    val fetchedModels by viewModel.availableModels.collectAsState()
+    val liveAvailable = provider.equals("Gemini", ignoreCase = true) && fetchedModels.any {
+        val id = it.modelId
+        id.contains("live", ignoreCase = true) || id.contains("native-audio", ignoreCase = true)
+    }
 
     // Setup permission launcher for voice recording
     val audioPermissionLauncher = rememberLauncherForActivityResult(
@@ -858,6 +865,21 @@ fun BottomInputBar(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (onOpenLive != null && liveAvailable) {
+                    IconButton(
+                        onClick = onOpenLive,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(SurfaceDark, CircleShape)
+                            .border(1.dp, SurfaceLightBorder, CircleShape)
+                    ) {
+                        IsometricCube(
+                            modifier = Modifier.size(18.dp),
+                            color = Accent
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },

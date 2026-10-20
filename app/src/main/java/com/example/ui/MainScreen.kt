@@ -102,6 +102,16 @@ fun MainScreen(viewModel: AgentViewModel) {
     var showSettingsModal by remember { mutableStateOf(false) }
     var showModelDropdown by remember { mutableStateOf(false) }
     var showTerminalScreen by remember { mutableStateOf(false) }
+    var showLiveScreen by remember { mutableStateOf(false) }
+
+    // The overlay bubble can ask the app to open the Live screen.
+    val liveOpenRequested by com.example.ui.live.LiveSessionHost.openRequested.collectAsState()
+    LaunchedEffect(liveOpenRequested) {
+        if (liveOpenRequested) {
+            com.example.ui.live.LiveSessionHost.consumeOpenRequest()
+            showLiveScreen = true
+        }
+    }
     
     val currentTokens by viewModel.currentTokens.collectAsState()
     val maxTokens by viewModel.maxTokens.collectAsState()
@@ -335,7 +345,7 @@ fun MainScreen(viewModel: AgentViewModel) {
                         .widthIn(max = 840.dp)
                         .align(Alignment.TopCenter)
                 ) {
-                    ChatScreenBody(viewModel)
+                    ChatScreenBody(viewModel, onOpenLive = { showLiveScreen = true })
                 }
             }
             
@@ -377,6 +387,19 @@ fun MainScreen(viewModel: AgentViewModel) {
                 }
                 Box(modifier = Modifier.fillMaxSize().zIndex(100f).background(Color.Black)) {
                     TerminalScreen(onClose = { showTerminalScreen = false })
+                }
+            }
+
+            if (showLiveScreen) {
+                BackHandler {
+                    com.example.ui.live.LiveSessionHost.endSession()
+                    showLiveScreen = false
+                }
+                Box(modifier = Modifier.fillMaxSize().zIndex(110f)) {
+                    com.example.ui.live.LiveSessionScreen(
+                        viewModel = viewModel,
+                        onClose = { showLiveScreen = false }
+                    )
                 }
             }
         }
