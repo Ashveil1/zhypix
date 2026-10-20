@@ -117,6 +117,8 @@ press_home({})""") is ActionParseResult.Invalid)
     }
 }
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class ScreenActionsNormalizeTest {
     @org.junit.Test fun acceptsNameKeyedObject() {
         val r = com.example.agent.ActionParser.parse("""{"name":"click","x":155,"y":303}""")
