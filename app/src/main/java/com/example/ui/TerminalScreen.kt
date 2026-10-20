@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.example.ui.theme.CrimsonRose
 import com.example.ui.theme.SuccessGreen
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.SurfaceDark
@@ -170,7 +171,7 @@ fun TerminalScreen(onClose: () -> Unit) {
                                     modifier = Modifier
                                         .size(6.dp)
                                         .clip(CircleShape)
-                                        .background(if (t.isRunning) SuccessGreen else Color(0xFFEF4444))
+                                        .background(if (t.isRunning) SuccessGreen else CrimsonRose)
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
@@ -355,9 +356,9 @@ fun TerminalScreen(onClose: () -> Unit) {
                             DropdownMenuItem(
                                 text = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Close, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Close, contentDescription = null, tint = CrimsonRose, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(10.dp))
-                                        Text("Kill Session", color = Color(0xFFEF4444), fontSize = 13.sp)
+                                        Text("Kill Session", color = CrimsonRose, fontSize = 13.sp)
                                     }
                                 },
                                 onClick = {
@@ -592,7 +593,7 @@ fun TerminalScreen(onClose: () -> Unit) {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFFEF4444)))
+                                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(CrimsonRose))
                                     Spacer(Modifier.width(8.dp))
                                     Text(
                                         "Process Finished${activeTerminal.session.getExitStatus().let { " (exit code $it)" }}",
@@ -1028,7 +1029,7 @@ private fun DistroManagerPanel(onBootDistro: (String) -> Unit) {
                                         .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(8.dp))
                                         .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Uninstall distro", tint = Color(0xFFEF4444).copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Delete, contentDescription = "Uninstall distro", tint = CrimsonRose.copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
