@@ -187,15 +187,15 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
 
             if (!isConfigured && !isBannerDismissed) {
                 Surface(
-                    color = SurfaceDark,
-                    border = BorderStroke(1.dp, CyanAccent.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(12.dp),
+                    color = SurfaceElevated,
+                    border = BorderStroke(1.dp, OrangeWarning.copy(alpha = 0.35f)),
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
+                        modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -206,22 +206,21 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
                                 contentDescription = "Settings Required",
-                                tint = CyanAccent,
+                                tint = OrangeWarning,
                                 modifier = Modifier
                                     .padding(end = 12.dp)
-                                    .size(22.dp)
+                                    .size(20.dp)
                             )
                             Column {
                                 Text(
-                                    text = "AI Configuration Needed",
-                                    color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp
+                                    text = "Setup needed",
+                                    color = TextPrimary,
+                                    style = MaterialTheme.typography.titleSmall
                                 )
                                 Text(
-                                    text = "Please set up your AI Provider, Model, and API Key to start chatting.",
-                                    color = TextPrimary.copy(alpha = 0.85f),
-                                    fontSize = 11.sp
+                                    text = "Choose a provider, model and API key to start chatting.",
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                             }
                         }
@@ -229,24 +228,24 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
                             Button(
                                 onClick = { viewModel.openSettings() },
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = CyanAccent,
-                                    contentColor = Color.Black
+                                    containerColor = Accent,
+                                    contentColor = OnAccent
                                 ),
-                                shape = RoundedCornerShape(8.dp),
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                modifier = Modifier.height(32.dp)
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                                modifier = Modifier.height(34.dp)
                             ) {
-                                Text("Setting Now", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Set Up", style = MaterialTheme.typography.labelLarge)
                             }
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             IconButton(
                                 onClick = { isBannerDismissed = true },
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(34.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Dismiss",
-                                    tint = Color.White.copy(alpha = 0.6f),
+                                    tint = TextTertiary,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -316,8 +315,8 @@ fun MessageBubbleList(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                contentPadding = PaddingValues(top = 16.dp, bottom = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(
                     count = messages.size,

@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -93,6 +94,7 @@ fun MessageItem(message: ChatMessage, modifier: Modifier = Modifier) {
     }
 }
 
+
 @Composable
 fun UserMessageBubble(message: ChatMessage.User) {
     Box(
@@ -102,21 +104,23 @@ fun UserMessageBubble(message: ChatMessage.User) {
         Box(
             modifier = Modifier
                 .widthIn(min = 40.dp, max = 560.dp)
-                .clip(RoundedCornerShape(14.dp, 14.dp, 2.dp, 14.dp))
-                .background(Color.White)
-                .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(14.dp, 14.dp, 2.dp, 14.dp))
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .clip(RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp))
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.White, Color(0xFFE9E9EC))
+                    )
+                )
+                .padding(horizontal = 16.dp, vertical = 11.dp)
         ) {
             Text(
                 text = message.text,
-                color = Color.Black,
-                fontSize = 14.sp,
-                lineHeight = 19.sp,
-                fontWeight = FontWeight.Medium
+                color = OnAccent,
+                style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp)
             )
         }
     }
 }
+
 
 @Composable
 fun TtsSpeaker(text: String, onToggleSpeaking: () -> Unit) {
@@ -132,21 +136,20 @@ fun TtsSpeaker(text: String, onToggleSpeaking: () -> Unit) {
     }
 
     Row(
-        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
             imageVector = if (isThisSpeaking) Icons.Default.Stop else Icons.Default.VolumeUp,
             contentDescription = "Read aloud",
-            tint = if (isThisSpeaking) Color(0xFF06B6D4) else TextSecondary,
+            tint = if (isThisSpeaking) Accent else TextSecondary,
             modifier = Modifier.size(12.dp)
         )
-        Spacer(modifier = Modifier.width(4.dp))
+        Spacer(modifier = Modifier.width(5.dp))
         Text(
             text = if (isThisSpeaking) "STOP" else "LISTEN",
-            color = if (isThisSpeaking) Color(0xFF06B6D4) else TextSecondary,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
+            color = if (isThisSpeaking) Accent else TextSecondary,
+            style = MaterialTheme.typography.labelSmall,
             fontFamily = FontFamily.Monospace
         )
     }
@@ -166,32 +169,33 @@ fun AgentMessageBubble(message: ChatMessage.Agent) {
     }
 
     Surface(
-        color = SurfaceDark.copy(alpha = 0.4f),
-        shape = RoundedCornerShape(2.dp, 12.dp, 12.dp, 12.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.04f)),
+        color = SurfaceDark,
+        shape = RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp),
+        border = BorderStroke(1.dp, SurfaceLightBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             androidx.compose.foundation.text.selection.SelectionContainer {
                 FormattedAgentMessage(text = message.text)
             }
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val agentVm = com.example.viewmodel.AgentViewModel.instance
-                
+
                 Surface(
-                    color = Color.White.copy(alpha = 0.05f),
-                    shape = RoundedCornerShape(4.dp),
+                    color = Color.White.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f)),
                     modifier = Modifier.clickable {
                         val isPlaying = agentVm?.ttsManager?.isPlaying?.value ?: false
                         val isSynthesizing = agentVm?.ttsManager?.isSynthesizing?.value ?: false
                         val currentText = agentVm?.ttsManager?.currentText?.value
                         val isThisSpeaking = (isPlaying || isSynthesizing) && currentText == message.text
-                        
+
                         if (isThisSpeaking) {
                             agentVm?.stopSpeaking()
                         } else {
@@ -202,8 +206,8 @@ fun AgentMessageBubble(message: ChatMessage.Agent) {
                     TtsSpeaker(
                         text = message.text,
                         onToggleSpeaking = {
-                            val agentVm = com.example.viewmodel.AgentViewModel.instance
-                            agentVm?.speakText(message.text)
+                            val agentVm2 = com.example.viewmodel.AgentViewModel.instance
+                            agentVm2?.speakText(message.text)
                         }
                     )
                 }
@@ -211,8 +215,12 @@ fun AgentMessageBubble(message: ChatMessage.Agent) {
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Surface(
-                    color = if (copied) SuccessGreen.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f),
-                    shape = RoundedCornerShape(4.dp),
+                    color = if (copied) SuccessGreen.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (copied) SuccessGreen.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.06f)
+                    ),
                     modifier = Modifier.clickable {
                         clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(message.text))
                         copied = true
@@ -220,7 +228,7 @@ fun AgentMessageBubble(message: ChatMessage.Agent) {
                     }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -229,12 +237,11 @@ fun AgentMessageBubble(message: ChatMessage.Agent) {
                             tint = if (copied) SuccessGreen else TextSecondary,
                             modifier = Modifier.size(12.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = if (copied) "COPIED" else "COPY",
                             color = if (copied) SuccessGreen else TextSecondary,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.labelSmall,
                             fontFamily = FontFamily.Monospace
                         )
                     }
@@ -244,13 +251,14 @@ fun AgentMessageBubble(message: ChatMessage.Agent) {
     }
 }
 
+
 @Composable
 fun SystemMessageItem(message: ChatMessage) {
     val text = when (message) {
         is ChatMessage.System -> message.text
         else -> ""
     }
-    
+
     if (text.isNotBlank()) {
         Box(
             modifier = Modifier
@@ -258,98 +266,100 @@ fun SystemMessageItem(message: ChatMessage) {
                 .padding(vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = text,
-                color = TextSecondary.copy(alpha = 0.5f),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                fontFamily = FontFamily.Monospace
-            )
+            Surface(
+                color = Color.White.copy(alpha = 0.04f),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Text(
+                    text = text,
+                    color = TextTertiary,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
         }
     }
 }
+
 
 @Composable
 fun ProviderConfigRequiredBubble(message: ChatMessage.ProviderConfigRequired) {
     val agentVm = com.example.viewmodel.AgentViewModel.instance
 
     Surface(
-        color = Color(0xFF09090B),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF27272A)),
+        color = SurfaceDark,
+        shape = RoundedCornerShape(20.dp),
+        border = BorderStroke(1.dp, SurfaceLightBorder),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFF18181B))
-                        .border(1.dp, Color(0xFF3F3F46), CircleShape),
+                        .background(SurfaceElevated)
+                        .border(1.dp, BorderStrong, CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
                         contentDescription = "Settings Required",
-                        tint = Color.White,
+                        tint = Accent,
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
                 Column {
                     Text(
-                        text = "Provider & Model Not Configured",
-                        color = Color.White,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "Provider & model not configured",
+                        color = TextPrimary,
+                        style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        text = "Configuration Required",
-                        color = Color(0xFFA1A1AA),
-                        fontSize = 11.sp
+                        text = "Setup required",
+                        color = OrangeWarning,
+                        style = MaterialTheme.typography.labelMedium
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = if (message.text.isNotBlank()) message.text else "AI Provider or Model is not configured yet. Please select your AI Provider, Model, and enter your API Key to use Zhypix AI.",
-                color = Color(0xFFD4D4D8),
-                fontSize = 13.sp,
-                lineHeight = 18.sp
+                text = if (message.text.isNotBlank()) message.text else "Choose an AI provider and model, then enter your API key to start using Zhypix.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodyMedium
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Button(
                 onClick = {
                     agentVm?.openSettings(com.example.model.SettingsScreenType.PROFILE)
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.White,
-                    contentColor = Color.Black
+                    containerColor = Accent,
+                    contentColor = OnAccent
                 ),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
                     imageVector = Icons.Default.Settings,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Configure Provider & Model Settings",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
+                    text = "Configure Provider & Model",
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
         }
@@ -640,6 +650,7 @@ fun MarkdownTextPart(content: String, modifier: Modifier = Modifier) {
     }
 }
 
+
 @Composable
 fun CodeBlockCard(language: String, code: String) {
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -657,29 +668,28 @@ fun CodeBlockCard(language: String, code: String) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black.copy(alpha = 0.85f))
-            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFF0A0A0C))
+            .border(1.dp, SurfaceLightBorder, RoundedCornerShape(12.dp))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White.copy(alpha = 0.03f))
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+                .background(Color.White.copy(alpha = 0.04f))
+                .padding(horizontal = 12.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = language.uppercase().ifEmpty { "CODE TERMINAL" },
-                color = CyanAccent,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
+                text = language.uppercase().ifEmpty { "CODE" },
+                color = TextSecondary,
+                style = MaterialTheme.typography.labelSmall,
                 fontFamily = FontFamily.Monospace,
                 letterSpacing = 1.sp
             )
             Surface(
-                color = if (copied) SuccessGreen.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(4.dp),
+                color = if (copied) SuccessGreen.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.07f),
+                shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.clickable {
                     clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(code))
                     copied = true
@@ -687,7 +697,7 @@ fun CodeBlockCard(language: String, code: String) {
                 }
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -698,10 +708,9 @@ fun CodeBlockCard(language: String, code: String) {
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (copied) "COPIED!" else "COPY",
+                        text = if (copied) "COPIED" else "COPY",
                         color = if (copied) SuccessGreen else TextSecondary,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace
                     )
                 }
@@ -710,7 +719,7 @@ fun CodeBlockCard(language: String, code: String) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(14.dp)
                 .horizontalScroll(rememberScrollState())
         ) {
             Text(
@@ -727,50 +736,44 @@ fun CodeBlockCard(language: String, code: String) {
 @Composable
 fun ThinkingIndicator(modifier: Modifier = Modifier) {
     val infiniteTransition = rememberInfiniteTransition(label = "thinking")
-    val dot1Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dot1"
-    )
-    val dot2Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing, delayMillis = 200),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dot2"
-    )
-    val dot3Alpha by infiniteTransition.animateFloat(
-        initialValue = 0.2f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = LinearEasing, delayMillis = 400),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dot3"
-    )
+    val dotAlphas = (0..2).map { index ->
+        infiniteTransition.animateFloat(
+            initialValue = 0.25f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(600, easing = LinearEasing, delayMillis = index * 200),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "dot$index"
+        )
+    }
 
     Row(
         modifier = modifier
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(12.dp, 12.dp, 12.dp, 2.dp))
-            .background(SurfaceDark.copy(alpha = 0.4f))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 4.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp))
+            .background(SurfaceDark)
+            .border(1.dp, SurfaceLightBorder, RoundedCornerShape(6.dp, 20.dp, 20.dp, 20.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Box(modifier = Modifier.size(4.dp).background(CyanAccent.copy(alpha = dot1Alpha), CircleShape))
-        Box(modifier = Modifier.size(4.dp).background(CyanAccent.copy(alpha = dot2Alpha), CircleShape))
-        Box(modifier = Modifier.size(4.dp).background(CyanAccent.copy(alpha = dot3Alpha), CircleShape))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text("AI is thinking...", color = TextSecondary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        dotAlphas.forEach { alphaState ->
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .background(Accent.copy(alpha = alphaState.value), CircleShape)
+            )
+        }
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            "Thinking",
+            color = TextSecondary,
+            style = MaterialTheme.typography.labelMedium
+        )
     }
 }
+
 
 @Composable
 fun BottomInputBar(
@@ -807,108 +810,125 @@ fun BottomInputBar(
     }
 
     Surface(
-        color = SurfaceDark.copy(alpha = 0.6f),
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-            .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)), RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-        tonalElevation = 8.dp
+        color = BackgroundGradientStart,
+        modifier = modifier.fillMaxWidth(),
+        tonalElevation = 0.dp
     ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-                .navigationBarsPadding()
-                .imePadding(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Type a message...", color = TextSecondary, fontSize = 14.sp) },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = CyanAccent.copy(alpha = 0.5f),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.1f),
-                    focusedContainerColor = Color.Black.copy(alpha = 0.2f),
-                    unfocusedContainerColor = Color.Black.copy(alpha = 0.2f),
-                    cursorColor = CyanAccent
-                ),
-                shape = RoundedCornerShape(24.dp),
-                maxLines = 4,
-                trailingIcon = {
-                    val micColor = if (isListening) CyanAccent else TextSecondary
-                    IconButton(
-                        onClick = {
-                            if (isListening) {
-                                viewModel.stopListening()
-                            } else {
-                                if (PermissionUtils.isMicrophoneGranted(context)) {
-                                    viewModel.startListening("th-TH") { result ->
-                                        if (result.isNotBlank()) {
-                                            text = result
-                                        }
-                                    }
+        Column {
+            HorizontalDivider(color = SurfaceLightBorder, thickness = 1.dp)
+            Row(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .navigationBarsPadding()
+                    .imePadding(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    modifier = Modifier.weight(1f),
+                    placeholder = {
+                        Text(
+                            "Message Zhypix...",
+                            color = TextTertiary,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = TextPrimary),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.White.copy(alpha = 0.35f),
+                        unfocusedBorderColor = SurfaceLightBorder,
+                        focusedContainerColor = SurfaceDark,
+                        unfocusedContainerColor = SurfaceDark,
+                        cursorColor = Accent
+                    ),
+                    shape = RoundedCornerShape(26.dp),
+                    maxLines = 4,
+                    trailingIcon = {
+                        val micColor = if (isListening) Accent else TextTertiary
+                        IconButton(
+                            onClick = {
+                                if (isListening) {
+                                    viewModel.stopListening()
                                 } else {
-                                    audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    if (PermissionUtils.isMicrophoneGranted(context)) {
+                                        viewModel.startListening("th-TH") { result ->
+                                            if (result.isNotBlank()) {
+                                                text = result
+                                            }
+                                        }
+                                    } else {
+                                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
                                 }
                             }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "Voice",
+                                tint = micColor,
+                                modifier = if (isListening) {
+                                    Modifier.scale(1.15f)
+                                } else {
+                                    Modifier
+                                }
+                            )
                         }
+                    }
+                )
+
+                if (isProcessing) {
+                    IconButton(
+                        onClick = {
+                            viewModel.stopExecution()
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(CrimsonRose.copy(alpha = 0.14f), CircleShape)
+                            .border(1.dp, CrimsonRose.copy(alpha = 0.5f), CircleShape)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Mic,
-                            contentDescription = "Voice",
-                            tint = micColor,
-                            modifier = if (isListening) {
-                                Modifier.scale(1.2f)
-                            } else {
-                                Modifier
-                            }
+                            imageVector = Icons.Default.Stop,
+                            contentDescription = "Stop",
+                            tint = CrimsonRose,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                }
-            )
-
-            if (isProcessing) {
-                IconButton(
-                    onClick = {
-                        viewModel.stopExecution()
-                    },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Color(0xFFEF4444).copy(alpha = 0.2f), CircleShape)
-                        .border(1.dp, Color(0xFFEF4444), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Stop,
-                        contentDescription = "Stop",
-                        tint = Color(0xFFEF4444),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            } else {
-                IconButton(
-                    onClick = {
-                        if (text.isNotBlank()) {
-                            onSend(text)
-                            text = ""
-                        }
-                    },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Color.Transparent)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Send,
-                        contentDescription = "Send",
-                        tint = if (text.isNotBlank()) Color.White else Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(22.dp)
-                    )
+                } else {
+                    val canSend = text.isNotBlank()
+                    IconButton(
+                        onClick = {
+                            if (canSend) {
+                                onSend(text)
+                                text = ""
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(
+                                if (canSend) Accent else Color.White.copy(alpha = 0.06f),
+                                CircleShape
+                            )
+                            .border(
+                                1.dp,
+                                if (canSend) Accent else SurfaceLightBorder,
+                                CircleShape
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = if (canSend) OnAccent else TextTertiary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
     }
 }
+
 
 @Composable
 fun AgentFab(
@@ -925,37 +945,41 @@ fun AgentFab(
         val infiniteTransition = rememberInfiniteTransition(label = "fab_pulse")
         val scale by infiniteTransition.animateFloat(
             initialValue = 1f,
-            targetValue = 1.15f,
+            targetValue = 1.12f,
             animationSpec = infiniteRepeatable(
                 animation = tween(1500, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "scale"
         )
-        
+
         if (isActing) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .scale(scale)
-                    .background(Color.Red.copy(alpha = 0.1f), CircleShape)
-                    .border(1.dp, Color.Red.copy(alpha = 0.2f), CircleShape)
+                    .background(CrimsonRose.copy(alpha = 0.08f), CircleShape)
+                    .border(1.dp, CrimsonRose.copy(alpha = 0.25f), CircleShape)
             )
         }
 
         LargeFloatingActionButton(
             onClick = onClick,
-            containerColor = if (isActing) Color(0xFFD32F2F) else SurfaceDark,
-            contentColor = if (isActing) Color.White else CyanAccent,
+            containerColor = if (isActing) CrimsonRose.copy(alpha = 0.9f) else SurfaceElevated,
+            contentColor = if (isActing) Color.White else Accent,
             shape = CircleShape,
             modifier = Modifier
-                .size(60.dp)
-                .border(1.5.dp, if (isActing) Color.Red else CyanAccent.copy(alpha = 0.6f), CircleShape),
-            elevation = FloatingActionButtonDefaults.elevation(4.dp, 6.dp, 4.dp, 4.dp)
+                .size(58.dp)
+                .border(
+                    1.5.dp,
+                    if (isActing) CrimsonRose else Color.White.copy(alpha = 0.25f),
+                    CircleShape
+                ),
+            elevation = FloatingActionButtonDefaults.elevation(6.dp, 8.dp, 6.dp, 6.dp)
         ) {
             AiCoreIcon(
-                modifier = Modifier.size(28.dp),
-                color = if (isActing) Color.White else CyanAccent,
+                modifier = Modifier.size(26.dp),
+                color = if (isActing) Color.White else Accent,
                 animate = isActing
             )
         }
@@ -969,32 +993,30 @@ fun AgentStateOverlay(state: AgentState) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.3f))
             .padding(16.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
         Surface(
-            color = SurfaceDark.copy(alpha = 0.9f),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, CyanAccent.copy(alpha = 0.3f))
+            color = SurfaceOverlay.copy(alpha = 0.92f),
+            shape = RoundedCornerShape(28.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
+            tonalElevation = 8.dp,
+            shadowElevation = 12.dp
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                RipplePulseIndicator(isProcessing = true, color = if (state == AgentState.ACTING) Color.Red else CyanAccent)
+                RipplePulseIndicator(isProcessing = true, color = if (state == AgentState.ACTING) CrimsonRose else Accent)
                 Text(
                     text = when (state) {
-                        AgentState.THINKING -> "AI IS REASONING..."
-                        AgentState.ACTING -> "AI IS EXECUTING ACTIONS..."
-                        else -> "ACTIVE"
+                        AgentState.THINKING -> "AI is reasoning"
+                        AgentState.ACTING -> "AI is acting on screen"
+                        else -> "Active"
                     },
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.sp
+                    color = TextPrimary,
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
         }
@@ -1374,20 +1396,20 @@ fun ToolExecutionCard(
 
     val statusColor = when {
         status.contains("Completed", ignoreCase = true) || status.contains("Success", ignoreCase = true) -> SuccessGreen
-        status.contains("Running", ignoreCase = true) || status.contains("Executing", ignoreCase = true) -> CyanAccent
-        status.contains("Failed", ignoreCase = true) -> Color(0xFFEF4444)
+        status.contains("Running", ignoreCase = true) || status.contains("Executing", ignoreCase = true) -> Accent
+        status.contains("Failed", ignoreCase = true) -> CrimsonRose
         else -> TextSecondary
     }
 
     Surface(
-        color = SurfaceDark.copy(alpha = 0.5f),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+        color = SurfaceDark,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, SurfaceLightBorder),
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -1418,17 +1440,16 @@ fun ToolExecutionCard(
                 }
 
                 Surface(
-                    color = statusColor.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(4.dp),
-                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.2f))
+                    color = statusColor.copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, statusColor.copy(alpha = 0.30f))
                 ) {
                     Text(
                         text = status.uppercase(),
                         color = statusColor,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
             }
@@ -1447,8 +1468,8 @@ fun ToolExecutionCard(
             if (!resultSnippet.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
-                    color = Color.Black.copy(alpha = 0.3f),
-                    shape = RoundedCornerShape(4.dp),
+                    color = Color.Black.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 32.dp)
