@@ -2512,8 +2512,16 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             onStep = { step, max -> _currentStep.value = step; _maxStepsPerTask.value = max },
             confirmBefore = { action -> kotlinx.coroutines.withContext(Dispatchers.Main.immediate) { service.device.confirmationQuestion(action) } }
         )
-        return loop.run()
+        val terminal = loop.run()
+        try { needsYouStore.record(task, terminal, System.currentTimeMillis()) } catch (_: Exception) { /* persistence must never break the task result */ }
+        return terminal
     }
+
+    private val needsYouStore by lazy {
+        com.example.agent.NeedsYouStore(com.example.agent.JsonListStore(java.io.File(getApplication<android.app.Application>().filesDir, "needs-you.json")))
+    }
+    fun pendingNeedsYou(): List<com.example.agent.NeedsYouItem> = needsYouStore.pending()
+    fun resolveNeedsYou(id: String): Boolean = needsYouStore.resolve(id, System.currentTimeMillis())
 
     private fun getInstalledAppsSummary(): String {
         installedAppsCache?.let { return it }
