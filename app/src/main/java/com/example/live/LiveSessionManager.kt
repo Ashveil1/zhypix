@@ -49,6 +49,11 @@ class LiveSessionManager(
     private var webSocket: WebSocket? = null
     private val setupComplete = AtomicBoolean(false)
 
+    /** Session resumption handle from the server; reused on reconnect. */
+    @Volatile
+    var resumptionHandle: String? = null
+        private set
+
     private val _state = MutableStateFlow(State.IDLE)
     val state: StateFlow<State> = _state.asStateFlow()
 
@@ -119,6 +124,9 @@ class LiveSessionManager(
         if (toolsPayload != null) {
             setup.getJSONObject("setup").put("tools", toolsPayload)
         }
+        resumptionHandle?.let {
+            setup.getJSONObject("setup").put("sessionResumption", JSONObject().put("handle", it))
+        }
         ws.send(setup.toString())
     }
 
@@ -174,6 +182,11 @@ class LiveSessionManager(
 
     internal fun handleServerMessage(raw: String) {
         val msg = try { JSONObject(raw) } catch (e: Exception) { return }
+
+        msg.optJSONObject("sessionResumptionUpdate")?.let { upd ->
+            val handle = upd.optString("newHandle", "")
+            if (handle.isNotEmpty()) resumptionHandle = handle
+        }
 
         if (msg.has("setupComplete")) {
             setupComplete.set(true)
