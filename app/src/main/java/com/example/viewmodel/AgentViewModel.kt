@@ -1224,36 +1224,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         "required" to listOf("command")
                     )
                 ),
-                mapOf(
-                    "name" to "send_android_intent",
-                    "description" to "Directly send an Android System Intent to trigger system actions like setting alarms, creating calendar events, opening specific settings pages, initiating phone calls, or launching system flows with precise extras.",
-                    "parameters" to mapOf(
-                        "type" to "OBJECT",
-                        "properties" to mapOf(
-                            "action" to mapOf(
-                                "type" to "STRING",
-                                "description" to "The Android Intent action string, e.g. 'android.intent.action.SET_ALARM', 'android.intent.action.VIEW', 'android.settings.WIFI_SETTINGS', 'android.intent.action.SENDTO', 'android.intent.action.DIAL', etc."
-                            ),
-                            "data_uri" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Optional data URI string, e.g. 'tel:0812345678', 'mailto:example@example.com', 'https://maps.google.com/?q=bangkok', or 'smsto:0812345678'"
-                            ),
-                            "mime_type" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Optional MIME type, e.g. 'text/plain', 'vnd.android.cursor.dir/event'"
-                            ),
-                            "package_name" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Optional package name to restrict the intent target, e.g. 'com.google.android.apps.maps', 'com.android.settings'"
-                            ),
-                            "extras" to mapOf(
-                                "type" to "OBJECT",
-                                "description" to "Optional key-value extras to attach to the intent. Can contain integers, doubles, booleans, or strings. For example: {'android.intent.extra.alarm.HOUR': 7, 'android.intent.extra.alarm.MINUTES': 30, 'android.intent.extra.alarm.MESSAGE': 'Wake up!', 'android.intent.extra.alarm.SKIP_UI': true}"
-                            )
-                        ),
-                        "required" to listOf("action")
-                    )
-                ),
+
                 mapOf(
                     "name" to "read_file",
                     "description" to "Directly read any file on Android storage or PRoot Linux container (supports all file extensions, text files UTF-8, or binary files via Base64 encoding).",
@@ -1421,7 +1392,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
         clearReasoningChain()
         addReasoningStep("User Query Received", "Processing command text: \"$text\"", "SUCCESS", "USER")
-        addReasoningStep("Initiating Reasoning Engine", "Preparing system prompts and loading historical conversational context.", "RUNNING", "SYSTEM")
+        addReasoningStep("Initiating Reasoning Engine", "Loading historical conversational context.", "RUNNING", "SYSTEM")
 
         conversationHistory.add(Content(parts = listOf(Part(text = text)), role = "user"))
 
@@ -1490,7 +1461,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
                 val sysInstruction: Content? = null
 
-                addReasoningStep("Synthesizing System Prompt", "Injecting guidelines, model roles, and learned memory preferences.", "SUCCESS", "SYSTEM")
+                // Legacy system prompts removed.
 
                 val thinkingCfg = if (_thinkingLevel.value == "NONE") {
                     null
@@ -1754,39 +1725,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             )
                         ),
-                        mapOf(
-                            "type" to "function",
-                            "function" to mapOf(
-                                "name" to "send_android_intent",
-                                "description" to "Directly send an Android System Intent to trigger system actions like setting alarms, creating calendar events, opening specific settings pages, initiating phone calls, or launching system flows with precise extras.",
-                                "parameters" to mapOf(
-                                    "type" to "object",
-                                    "properties" to mapOf(
-                                        "action" to mapOf(
-                                            "type" to "string",
-                                            "description" to "The Android Intent action string, e.g. 'android.intent.action.SET_ALARM', 'android.intent.action.VIEW', 'android.settings.WIFI_SETTINGS', 'android.intent.action.SENDTO', 'android.intent.action.DIAL', etc."
-                                        ),
-                                        "data_uri" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Optional data URI string, e.g. 'tel:0812345678', 'mailto:example@example.com', 'https://maps.google.com/?q=bangkok', or 'smsto:0812345678'"
-                                        ),
-                                        "mime_type" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Optional MIME type, e.g. 'text/plain', 'vnd.android.cursor.dir/event'"
-                                        ),
-                                        "package_name" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Optional package name to restrict the intent target, e.g. 'com.google.android.apps.maps', 'com.android.settings'"
-                                        ),
-                                        "extras" to mapOf(
-                                            "type" to "object",
-                                            "description" to "Optional key-value extras to attach to the intent. Can contain integers, doubles, booleans, or strings. For example: {'android.intent.extra.alarm.HOUR': 7, 'android.intent.extra.alarm.MINUTES': 30, 'android.intent.extra.alarm.MESSAGE': 'Wake up!', 'android.intent.extra.alarm.SKIP_UI': true}"
-                                        )
-                                    ),
-                                    "required" to listOf("action")
-                                )
-                            )
-                        )
+
                     )
                     
                     baseOpenAiTools.add(mapOf(
@@ -2285,58 +2224,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             if (lastIdx != -1) currentMsgs[lastIdx] = ChatMessage.TaskExecution(AgentAction("READ_URL", url), "Failed")
                         }
                     }
-                    "send_android_intent" -> {
-                        val action = call.args?.get("action") as? String ?: ""
-                        val dataUri = call.args?.get("data_uri") as? String
-                        val mimeType = call.args?.get("mime_type") as? String
-                        val packageName = call.args?.get("package_name") as? String
-                        val extrasRaw = call.args?.get("extras")
-                        
-                        val extras = when (extrasRaw) {
-                            is Map<*, *> -> extrasRaw.entries.associate { (k, v) -> k.toString() to (v ?: "") }
-                            else -> null
-                        }
-
-                        addReasoningStep("Android System Intent Dispatch", "Action: \"$action\", URI: $dataUri", "RUNNING", "TOOL")
-                        
-                        val actionObj = AgentAction("INTENT", action)
-                        _messages.value = _messages.value + ChatMessage.TaskExecution(actionObj, "Sending Intent...")
-
-                        val outcome = executeAndroidIntent(action, dataUri, mimeType, packageName, extras)
-                        runningActionLog.add("INTENT", action, outcome.first, outcome.second)
-                        
-                        val currentMsgs = _messages.value.toMutableList()
-                        val lastIdx = currentMsgs.indexOfLast { it is ChatMessage.TaskExecution && it.action.actionType == "INTENT" && it.action.target == action }
-                        if (lastIdx != -1) {
-                            currentMsgs[lastIdx] = ChatMessage.TaskExecution(actionObj, if (outcome.first) "Completed" else "Failed", resultSnippet = outcome.second)
-                            _messages.value = currentMsgs
-                        } else {
-                            _messages.value = _messages.value + ChatMessage.TaskExecution(actionObj, if (outcome.first) "Completed" else "Failed", resultSnippet = outcome.second)
-                        }
-
-                        if (outcome.first) {
-                            addReasoningStep("Android System Intent Successful", outcome.second, "SUCCESS", "TOOL")
-
-                            val postIntentHierarchy = ""
-                            responseParts.add(Part(functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf(
-                                    "status" to "success",
-                                    "message" to outcome.second,
-                                    "current_screen_hierarchy" to postIntentHierarchy
-                                )
-                            )))
-                        } else {
-                            addReasoningStep("Android System Intent Failed", outcome.second, "FAILED", "TOOL")
-                            responseParts.add(Part(functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf(
-                                    "status" to "error",
-                                    "message" to outcome.second
-                                )
-                            )))
-                        }
-                    }
                     "execute_linux_command" -> {
                         val command = call.args?.get("command") as? String ?: ""
                         val distro = call.args?.get("distro") as? String
@@ -2651,168 +2538,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e("Zhypix", "Summarization failed", e)
             }
-        }
-    }
-
-    private suspend fun executeAndroidIntent(
-        action: String,
-        dataUri: String?,
-        mimeType: String?,
-        packageName: String?,
-        extras: Map<String, Any>?
-    ): Pair<Boolean, String> {
-        val context = getApplication<android.app.Application>()
-        val upperAction = action.uppercase()
-
-        // 1. System Action: FLASHLIGHT / TORCH
-        if (upperAction.contains("FLASHLIGHT") || upperAction.contains("TORCH")) {
-            try {
-                val cameraManager = context.getSystemService(android.content.Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
-                val cameraId = cameraManager.cameraIdList.firstOrNull()
-                if (cameraId != null) {
-                    val turnOn = upperAction.contains("ON") || (upperAction.contains("TOGGLE") && !isFlashlightOn)
-                    cameraManager.setTorchMode(cameraId, turnOn)
-                    isFlashlightOn = turnOn
-                    return Pair(true, "Flashlight turned ${if (turnOn) "ON" else "OFF"}")
-                }
-            } catch (e: Exception) {
-                return Pair(false, "Flashlight control error: ${e.message}")
-            }
-        }
-
-        // 2. System Action: VOLUME CONTROL
-        if (upperAction.contains("VOLUME") || upperAction.contains("MUTE")) {
-            try {
-                val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-                return if (upperAction.contains("UNMUTE")) {
-                    // Check UNMUTE before MUTE: "UNMUTE" also contains "MUTE".
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Unmuted media volume")
-                } else if (upperAction.contains("UP")) {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Increased media volume")
-                } else if (upperAction.contains("DOWN")) {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Decreased media volume")
-                } else if (upperAction.contains("MUTE")) {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Muted media volume")
-                } else {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Unmuted media volume")
-                }
-            } catch (e: Exception) {
-                return Pair(false, "Volume adjustment error: ${e.message}")
-            }
-        }
-
-        if (upperAction == "OPEN_APP" || upperAction == "LAUNCH_APP") {
-            return Pair(false, "Screen control is being rebuilt and is currently unavailable.")
-        }
-
-        // 4. Resolve Action Names & Settings Aliases
-        var effectiveDataUri = dataUri
-        var effectivePackageName = packageName
-
-        // Special handling for Web Search / Media Queries
-        val resolvedAction = when {
-            upperAction == "YOUTUBE_SEARCH" || upperAction == "SEARCH_YOUTUBE" || upperAction == "PLAY_YOUTUBE" -> {
-                val query = extras?.get("query")?.toString() ?: dataUri ?: ""
-                val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-                effectiveDataUri = "https://www.youtube.com/results?search_query=$encodedQuery"
-                effectivePackageName = packageName ?: "com.google.android.youtube"
-                android.content.Intent.ACTION_VIEW
-            }
-            upperAction == "SPOTIFY_SEARCH" || upperAction == "SEARCH_SPOTIFY" || upperAction == "PLAY_SPOTIFY" -> {
-                val query = extras?.get("query")?.toString() ?: dataUri ?: ""
-                val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-                effectiveDataUri = "spotify:search:$encodedQuery"
-                effectivePackageName = packageName ?: "com.spotify.music"
-                android.content.Intent.ACTION_VIEW
-            }
-            upperAction == "NAVIGATE" || upperAction == "MAPS" || upperAction == "DIRECTIONS" -> {
-                val dest = extras?.get("query")?.toString() ?: dataUri ?: ""
-                effectiveDataUri = "google.navigation:q=${java.net.URLEncoder.encode(dest, "UTF-8")}"
-                android.content.Intent.ACTION_VIEW
-            }
-            upperAction == "WEB_SEARCH" || upperAction == "GOOGLE_SEARCH" -> {
-                android.content.Intent.ACTION_WEB_SEARCH
-            }
-            upperAction.contains("SET_ALARM") || upperAction.contains("ALARM_CLOCK") -> android.provider.AlarmClock.ACTION_SET_ALARM
-            upperAction.contains("SET_TIMER") -> android.provider.AlarmClock.ACTION_SET_TIMER
-            upperAction == "WIFI_SETTINGS" -> android.provider.Settings.ACTION_WIFI_SETTINGS
-            upperAction == "BLUETOOTH_SETTINGS" -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
-            upperAction == "ACCESSIBILITY_SETTINGS" -> android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS
-            upperAction == "DISPLAY_SETTINGS" -> android.provider.Settings.ACTION_DISPLAY_SETTINGS
-            upperAction == "SOUND_SETTINGS" -> android.provider.Settings.ACTION_SOUND_SETTINGS
-            upperAction == "SETTINGS" -> android.provider.Settings.ACTION_SETTINGS
-            else -> action
-        }
-
-        return try {
-            val intent = android.content.Intent(resolvedAction).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (!effectivePackageName.isNullOrBlank()) {
-                    setPackage(effectivePackageName)
-                }
-                if (!effectiveDataUri.isNullOrBlank()) {
-                    val parsedUri = android.net.Uri.parse(effectiveDataUri)
-                    if (!mimeType.isNullOrBlank()) {
-                        setDataAndType(parsedUri, mimeType)
-                    } else {
-                        setData(parsedUri)
-                    }
-                } else if (!mimeType.isNullOrBlank()) {
-                    type = mimeType
-                }
-
-                extras?.forEach { (key, value) ->
-                    val normKey = when (key.lowercase()) {
-                        "hour", "extra_hour" -> android.provider.AlarmClock.EXTRA_HOUR
-                        "minutes", "extra_minutes" -> android.provider.AlarmClock.EXTRA_MINUTES
-                        "message", "extra_message" -> android.provider.AlarmClock.EXTRA_MESSAGE
-                        "skip_ui", "extra_skip_ui" -> android.provider.AlarmClock.EXTRA_SKIP_UI
-                        "length", "extra_length" -> android.provider.AlarmClock.EXTRA_LENGTH
-                        else -> key
-                    }
-
-                    when (value) {
-                        is Double -> putExtra(normKey, value.toInt())
-                        is Float -> putExtra(normKey, value.toInt())
-                        is Int -> putExtra(normKey, value)
-                        is Long -> putExtra(normKey, value)
-                        is Boolean -> putExtra(normKey, value)
-                        is String -> {
-                            val intVal = value.toIntOrNull()
-                            val boolVal = value.toBooleanStrictOrNull()
-                            if (intVal != null) putExtra(normKey, intVal)
-                            else if (boolVal != null) putExtra(normKey, boolVal)
-                            else putExtra(normKey, value)
-                        }
-                        is List<*> -> {
-                            if (value.isNotEmpty()) {
-                                val first = value.first()
-                                when (first) {
-                                    is Int -> putIntegerArrayListExtra(normKey, ArrayList(value.filterIsInstance<Int>()))
-                                    is Double -> {
-                                        // Mixed-type lists must not crash: coerce only numeric entries.
-                                        val intList = value.mapNotNull { (it as? Number)?.toInt() }
-                                        putIntegerArrayListExtra(normKey, ArrayList(intList))
-                                    }
-                                    is String -> putStringArrayListExtra(normKey, ArrayList(value.filterIsInstance<String>()))
-                                    else -> putStringArrayListExtra(normKey, ArrayList(value.map { it.toString() }))
-                                }
-                            }
-                        }
-                        else -> putExtra(normKey, value.toString())
-                    }
-                }
-            }
-            context.startActivity(intent)
-            Pair(true, "Successfully executed system action: $resolvedAction")
-        } catch (e: Exception) {
-            Log.w("AgentViewModel", "Intent failed: ${e.message}")
-            Pair(false, "Intent execution failed ($resolvedAction): ${e.localizedMessage}")
         }
     }
 
