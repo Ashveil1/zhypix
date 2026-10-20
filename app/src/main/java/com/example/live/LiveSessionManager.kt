@@ -33,6 +33,7 @@ class LiveSessionManager(
     private val systemPrompt: String,
     private val baseWsUrl: String = DEFAULT_WS_URL,
     private val toolsPayload: JSONArray? = null,
+    private val responseModalities: List<String> = listOf("TEXT"),
 ) {
 
     enum class State { IDLE, CONNECTING, LISTENING, SPEAKING, ACTING, ERROR, CLOSED }
@@ -62,6 +63,12 @@ class LiveSessionManager(
 
     /** Called once the session handshake finished and input can be sent. */
     var onReady: (() -> Unit)? = null
+
+    /** Called for each model audio chunk (PCM, mimeType like "audio/pcm;rate=24000"). */
+    var onModelAudio: ((pcm: ByteArray, mimeType: String) -> Unit)? = null
+
+    /** Called when the user barges in and the model's current turn is interrupted. */
+    var onInterrupted: (() -> Unit)? = null
 
     fun connect() {
         if (_state.value == State.CONNECTING || _state.value == State.LISTENING) return
@@ -106,7 +113,7 @@ class LiveSessionManager(
             .put("setup", JSONObject()
                 .put("model", model)
                 .put("generationConfig", JSONObject()
-                    .put("responseModalities", JSONArray().put("TEXT")))
+                    .put("responseModalities", JSONArray().apply { responseModalities.forEach { put(it) } }))
                 .put("systemInstruction", JSONObject()
                     .put("parts", JSONArray().put(JSONObject().put("text", systemPrompt)))))
         if (toolsPayload != null) {
@@ -137,6 +144,18 @@ class LiveSessionManager(
                 .put("video", JSONObject()
                     .put("data", base64Jpeg)
                     .put("mimeType", "image/jpeg")))
+        ws.send(msg.toString())
+    }
+
+    /** Stream one mic chunk (16-bit PCM, 16kHz mono) as realtime audio input. */
+    fun sendAudioChunk(pcm: ByteArray) {
+        val ws = webSocket ?: return
+        if (!setupComplete.get() || pcm.isEmpty()) return
+        val msg = JSONObject()
+            .put("realtimeInput", JSONObject()
+                .put("audio", JSONObject()
+                    .put("data", android.util.Base64.encodeToString(pcm, android.util.Base64.NO_WRAP))
+                    .put("mimeType", "audio/pcm;rate=16000")))
         ws.send(msg.toString())
     }
 
@@ -173,9 +192,26 @@ class LiveSessionManager(
                     sb.append(parts.optJSONObject(i)?.optString("text", ""))
                 }
                 if (sb.isNotEmpty()) onModelText?.invoke(sb.toString(), turnComplete)
+                for (i in 0 until parts.length()) {
+                    val inline = parts.optJSONObject(i)?.optJSONObject("inlineData")
+                        ?: parts.optJSONObject(i)?.optJSONObject("inline_data")
+                    if (inline != null) {
+                        val mime = inline.optString("mimeType", inline.optString("mime_type", ""))
+                        val data = inline.optString("data", "")
+                        if (data.isNotEmpty()) {
+                            val bytes = try {
+                                android.util.Base64.decode(data, android.util.Base64.NO_WRAP)
+                            } catch (e: Exception) { null }
+                            if (bytes != null) onModelAudio?.invoke(bytes, mime)
+                        }
+                    }
+                }
             }
             if (turnComplete) _state.value = State.LISTENING
-            if (content.optBoolean("interrupted", false)) _state.value = State.LISTENING
+            if (content.optBoolean("interrupted", false)) {
+                _state.value = State.LISTENING
+                onInterrupted?.invoke()
+            }
         }
 
         msg.optJSONObject("toolCall")?.let { toolCall ->
