@@ -115,6 +115,10 @@ jobs:
             adb shell dumpsys accessibility > dumpsys_accessibility.txt || true
             adb logcat -c || true
             adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee instrument_output.txt || true
+            adb shell am instrument -w -e class com.example.GestureAdapterE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee gesture_output.txt || true
+            adb exec-out run-as com.zhypix.app.jdufyx cat files/gesture-evidence.txt > gesture-evidence.txt || true
+            adb shell screencap -p /sdcard/gesture_final.png || true
+            adb pull /sdcard/gesture_final.png gesture_final.png || true
             if grep -q "FAILURES!!!" instrument_output.txt; then touch /tmp/e2e_failed; fi
             grep -q "OK (" instrument_output.txt || touch /tmp/e2e_failed
             adb logcat -d > logcat.txt || true
@@ -136,6 +140,9 @@ jobs:
             agent_diagnostics.jsonl
             e2e_final.png
             dumpsys_accessibility.txt
+            gesture_output.txt
+            gesture-evidence.txt
+            gesture_final.png
             dumpsys_accessibility_after.txt
             dumpsys_activity_services.txt
             e2e_window_search.xml
