@@ -262,6 +262,16 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     var wasWaitingForScreenLoad: Boolean = false
 
+    /** Set when the user touches the screen while the agent is running: pause after the current step. */
+    @Volatile
+    var touchPauseRequested: Boolean = false
+
+    fun requestPauseFromTouch() {
+        if (!_isProcessing.value) return
+        touchPauseRequested = true
+        Log.i("Zhypix", "Pause requested: user touched the screen")
+    }
+
     fun notifyScreenLoadingFinished(newHierarchy: String) {
         if (_isProcessing.value) return
         if (!wasWaitingForScreenLoad) return
@@ -2792,6 +2802,17 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     "computer_use_action" -> {
                         val act = call.args?.get("action_type") as? String ?: "UNKNOWN"
                         val tgt = call.args?.get("target") as? String ?: "UNKNOWN"
+
+                        if (touchPauseRequested) {
+                            addReasoningStep("Paused by user touch", "Action $act skipped because the user touched the screen.", "WARNING", "SYSTEM")
+                            responseParts.add(Part(functionResponse = FunctionResponse(
+                                name = call.name,
+                                response = mapOf(
+                                    "status" to "paused",
+                                    "message" to "The user touched the screen. The agent is now paused; await the user's next instruction."
+                                )
+                            )))
+                        } else {
                         
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = true
@@ -2813,7 +2834,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             addReasoningStep("Precondition Guard Alert", "Target '$tgt' missing or not visible on screen. Skipping action to prevent misclicks.", "WARNING", "TOOL")
                         }
                         
-                        val actionResult = com.example.service.GestureMapper.executeAction(service, act, tgt, getApplication<android.app.Application>())
+                        val actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
+                        val actionResult = actionOutcome.result
                         
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = false
@@ -2851,13 +2873,12 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             // goes quiet (120ms without events) instead of a fixed sleep.
                             // Typical taps settle in ~150-300ms vs the old fixed 450ms,
                             // and app launches break early instead of always waiting 1200ms.
-                            val settleCapMs = if (normAct == "OPEN_APP") 2500L else 900L
-                            val waitedMs = service.awaitEventQuiet(quietMs = 120L, maxWaitMs = settleCapMs)
-                            addReasoningStep("Post-Action Event Settle (${waitedMs}ms)", "Accessibility event stream quiet after $act (cap ${settleCapMs}ms).", "RUNNING", "SYSTEM")
-
                             _lastScreenshot.value = null
                             service.invalidateScreenshotCache()
-                            postActionHierarchy = service.getActiveWindowHierarchy()
+                            val snapshot = com.example.agent.Perception.settleAndSnapshot(service, isAppLaunch = normAct == "OPEN_APP")
+                            postActionHierarchy = snapshot.hierarchy
+                            addReasoningStep("Post-Action Event Settle (${snapshot.settleMs}ms)", "Accessibility event stream quiet after $act.", "RUNNING", "SYSTEM")
+                            addReasoningStep("Step timing", "execute ${actionOutcome.executeMs}ms, settle ${snapshot.settleMs}ms, tree ${snapshot.captureMs}ms", "INFO", "SYSTEM")
 
                             // Capture a screenshot only when the active model can actually
                             // see it. In tree-only mode this saves up to 3.5s per step.
@@ -2941,6 +2962,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             )
                             _messages.value = currentMsgs
                         }
+                        }
                     }
                 }
             }
@@ -2959,10 +2981,20 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 ))
             }
 
-            _agentState.value = AgentState.THINKING
-            autoContinueCount = 0
-            addReasoningStep("Recycling Tool Outcomes", "Returning functional responses back to model coordinate loop.", "RUNNING", "SYSTEM")
-            executeGeminiCall() // Re-trigger call
+            if (touchPauseRequested) {
+                touchPauseRequested = false
+                _isProcessing.value = false
+                _agentState.value = AgentState.IDLE
+                _activeAction.value = null
+                stopLiveScreenStream()
+                stopInactivityWatchdog()
+                addReasoningStep("Agent paused", "Paused because the user touched the screen. Say anything to continue.", "WARNING", "SYSTEM")
+            } else {
+                _agentState.value = AgentState.THINKING
+                autoContinueCount = 0
+                addReasoningStep("Recycling Tool Outcomes", "Returning functional responses back to model coordinate loop.", "RUNNING", "SYSTEM")
+                executeGeminiCall() // Re-trigger call
+            }
         } else {
              val modelText = modelTextParts.joinToString("\n")
              val isTaskDoneText = modelText.contains("เสร็จสิ้น") || modelText.contains("เรียบร้อยแล้ว") || modelText.contains("สำเร็จ") || modelText.contains("ครบถ้วน") || modelText.contains("completed") || modelText.contains("finished") || modelText.contains("DONE")
@@ -2974,6 +3006,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
                  appScope.launch {
                      kotlinx.coroutines.delay(1200L)
+                     if (touchPauseRequested || !_isProcessing.value) return@launch
                      val service = com.example.service.ZhypixAccessibilityService.instance
                      val currentH = service?.getActiveWindowHierarchy() ?: _lastHierarchy.value ?: ""
 
