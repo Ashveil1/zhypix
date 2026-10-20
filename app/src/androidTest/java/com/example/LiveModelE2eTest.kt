@@ -36,7 +36,16 @@ class LiveModelE2eTest {
         }
     }
 
-    private suspend fun drive(task:String,allowedLabels:Set<String>,maxSteps:Int,verify:(UiDevice)->Unit) {
+    /** First tap is swallowed (reported as dispatched) so the model must notice the unchanged frame and try again. */
+    @Test fun modelRecoversFromTapWithNoEffect() = runBlocking {
+        drive("Open the Network & internet page from Android Settings. Do not toggle or change anything. Once the page is visibly open, return finished.",setOf("Network & internet"),8,dropFirstTap=true) {device->
+            val toolbar=device.findObject(By.res("com.android.settings:id/collapsing_toolbar"))
+            assertEquals("Network & internet",toolbar?.contentDescription)
+        }
+    }
+
+    private suspend fun drive(task:String,allowedLabels:Set<String>,maxSteps:Int,dropFirstTap:Boolean=false,verify:(UiDevice)->Unit) {
+        var tapsSeen=0
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         val context=instrumentation.targetContext
         val device=UiDevice.getInstance(instrumentation)
@@ -85,7 +94,7 @@ class LiveModelE2eTest {
                 val success=when(action){
                     is ScreenAction.Click-> {
                         val hit=allowedLabels.any {label->device.findObjects(By.text(label)).any {it.visibleBounds.contains(action.x,action.y)}}
-                        if(hit) device.click(action.x,action.y) else false
+                        if(!hit) false else if(dropFirstTap && tapsSeen++==0) {evidence.appendText("Harness: swallowed this tap\n");true} else device.click(action.x,action.y)
                     }
                     ScreenAction.PressBack->device.pressBack()
                     is ScreenAction.Wait->{kotlinx.coroutines.delay(action.durationMs.coerceAtMost(3000));true}
