@@ -262,6 +262,16 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     var wasWaitingForScreenLoad: Boolean = false
 
+    /** Set when the user touches the screen while the agent is running: pause after the current step. */
+    @Volatile
+    var touchPauseRequested: Boolean = false
+
+    fun requestPauseFromTouch() {
+        if (!_isProcessing.value) return
+        touchPauseRequested = true
+        Log.i("Zhypix", "Pause requested: user touched the screen")
+    }
+
     fun notifyScreenLoadingFinished(newHierarchy: String) {
         if (_isProcessing.value) return
         if (!wasWaitingForScreenLoad) return
@@ -2792,6 +2802,17 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     "computer_use_action" -> {
                         val act = call.args?.get("action_type") as? String ?: "UNKNOWN"
                         val tgt = call.args?.get("target") as? String ?: "UNKNOWN"
+
+                        if (touchPauseRequested) {
+                            addReasoningStep("Paused by user touch", "Action $act skipped because the user touched the screen.", "WARNING", "SYSTEM")
+                            responseParts.add(Part(functionResponse = FunctionResponse(
+                                name = call.name,
+                                response = mapOf(
+                                    "status" to "paused",
+                                    "message" to "The user touched the screen. The agent is now paused; await the user's next instruction."
+                                )
+                            )))
+                        } else {
                         
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = true
@@ -2941,6 +2962,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             )
                             _messages.value = currentMsgs
                         }
+                        }
                     }
                 }
             }
@@ -2959,10 +2981,20 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 ))
             }
 
-            _agentState.value = AgentState.THINKING
-            autoContinueCount = 0
-            addReasoningStep("Recycling Tool Outcomes", "Returning functional responses back to model coordinate loop.", "RUNNING", "SYSTEM")
-            executeGeminiCall() // Re-trigger call
+            if (touchPauseRequested) {
+                touchPauseRequested = false
+                _isProcessing.value = false
+                _agentState.value = AgentState.IDLE
+                _activeAction.value = null
+                stopLiveScreenStream()
+                stopInactivityWatchdog()
+                addReasoningStep("Agent paused", "Paused because the user touched the screen. Say anything to continue.", "WARNING", "SYSTEM")
+            } else {
+                _agentState.value = AgentState.THINKING
+                autoContinueCount = 0
+                addReasoningStep("Recycling Tool Outcomes", "Returning functional responses back to model coordinate loop.", "RUNNING", "SYSTEM")
+                executeGeminiCall() // Re-trigger call
+            }
         } else {
              val modelText = modelTextParts.joinToString("\n")
              val isTaskDoneText = modelText.contains("เสร็จสิ้น") || modelText.contains("เรียบร้อยแล้ว") || modelText.contains("สำเร็จ") || modelText.contains("ครบถ้วน") || modelText.contains("completed") || modelText.contains("finished") || modelText.contains("DONE")
@@ -2974,6 +3006,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
                  appScope.launch {
                      kotlinx.coroutines.delay(1200L)
+                     if (touchPauseRequested || !_isProcessing.value) return@launch
                      val service = com.example.service.ZhypixAccessibilityService.instance
                      val currentH = service?.getActiveWindowHierarchy() ?: _lastHierarchy.value ?: ""
 

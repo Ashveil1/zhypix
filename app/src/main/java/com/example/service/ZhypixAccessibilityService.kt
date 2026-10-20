@@ -83,6 +83,11 @@ class ZhypixAccessibilityService : AccessibilityService() {
 
     private var lastEventTime: Long = 0L
     private var lastHeavyEventWorkTime: Long = 0L
+
+    /** Last time the agent itself performed a click/scroll, used to tell its
+     *  gestures apart from the user's own touches (touch-to-pause). */
+    @Volatile
+    var lastAgentGestureTime: Long = 0L
     private var wasInLoadingState: Boolean = false
 
     fun isLoadingState(hierarchy: String): Boolean {
@@ -143,6 +148,16 @@ class ZhypixAccessibilityService : AccessibilityService() {
         val isOurApp = (pkg == myPkg || pkg == "com.example" || pkg.startsWith("com.aistudio"))
 
         when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
+                // Touch-to-pause: a click we did not perform ourselves while the
+                // agent is running means the user is taking over - pause the run.
+                val vm = com.example.viewmodel.AgentViewModel.instance
+                if (vm != null && vm.isProcessing.value &&
+                    System.currentTimeMillis() - lastAgentGestureTime > 500L) {
+                    Log.i("Zhypix", "External touch detected while agent active - requesting pause")
+                    vm.requestPauseFromTouch()
+                }
+            }
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
@@ -189,6 +204,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
     }
 
     suspend fun dispatchClick(x: Float, y: Float, bounds: Rect? = null): Boolean {
+        lastAgentGestureTime = System.currentTimeMillis()
         invalidateScreenshotCache()
 
         // Human-like Gaussian jitter and fast responsive touch dwell time.
@@ -243,6 +259,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
     }
 
     suspend fun dispatchSwipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long = 180): Boolean {
+        lastAgentGestureTime = System.currentTimeMillis()
         invalidateScreenshotCache()
 
         val distance = Math.hypot((endX - startX).toDouble(), (endY - startY).toDouble()).toFloat()
@@ -536,6 +553,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
     }
 
     suspend fun clickSmart(target: String): ActionResult {
+        lastAgentGestureTime = System.currentTimeMillis()
         invalidateScreenshotCache()
         val selector = ElementSelector.parse(target)
         val resolved = ElementResolver.resolve(this, selector)
@@ -653,6 +671,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
      * no scrollable node exists so callers can fall back to a swipe.
      */
     fun scrollSmart(direction: String): Boolean {
+        lastAgentGestureTime = System.currentTimeMillis()
         val action = when (direction.uppercase().trim()) {
             "UP", "SCROLL_UP" -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
             "DOWN", "SCROLL_DOWN" -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD

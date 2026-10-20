@@ -31,13 +31,13 @@ fallback, verify every step).
 - [x] CI added (PR #1) so every push compiles + tests.
 - [x] Cleanup pass: dead code removed, event-callback throttled, inputText
       mispaste fixed (branch screen-control-rebuild).
-- [ ] New `com.example.agent` package: Perception + ActionExecutor, built
+- [x] New `com.example.agent` package: Perception + ActionExecutor, built
       against ZhypixAccessibilityService's improved primitives.
 - [ ] AgentViewModel's computer_use_action handler routes through
       ActionExecutor; old paths (screenshot-interval loop, fixed delays,
       duplicate helpers) deleted.
-- [ ] Touch-to-pause: any user touch event pauses the run (TYPE_VIEW_HOVER /
-      gesture detection heuristics), resume via bubble.
+- [x] Touch-to-pause: external click events pause the run (agent gestures filtered by recency);
+
 - [ ] Numbers: log per-step latency (settle ms, action ms, verify ms) so we
       can report real before/after speed.
 
