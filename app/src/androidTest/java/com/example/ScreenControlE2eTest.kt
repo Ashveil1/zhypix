@@ -143,12 +143,15 @@ class ScreenControlE2eTest {
     @Test
     fun uiAutomationTypeIntoSearch() {
         openSettings()
-        val search = device.wait(Until.findObject(By.textContains("Search")), 8_000)
-        assertNotNull("Settings search bar not found", search)
-        search.click()
+        // The main Settings page hosts a search field directly; its hint text
+        // is not reliably exposed to accessibility, so target the EditText.
+        val bar = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 8_000)
+        assertNotNull("Settings search field not found on main page", bar)
+        bar.click()
         Thread.sleep(1500)
-        val field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5_000)
-        assertNotNull("No EditText after clicking search", field)
+        val field = device.wait(Until.findObject(By.clazz("android.widget.EditText").focused(true)), 5_000)
+            ?: device.findObject(By.clazz("android.widget.EditText"))
+        assertNotNull("No EditText after clicking search field", field)
         field.text = "wifi"
         Thread.sleep(1500)
         val typed = device.findObject(By.textContains("wifi"))
