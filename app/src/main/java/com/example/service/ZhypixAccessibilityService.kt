@@ -13,6 +13,8 @@ class ZhypixAccessibilityService : AccessibilityService() {
         instance = null
         return super.onUnbind(intent)
     }
+    val device by lazy { ScreenDevice(this) }
+    val observation by lazy { ScreenObservation(this) }
     // Temporary inactive interfaces for chat and voice while replacement lands.
     fun getActiveWindowHierarchy(): String = "Screen control is being rebuilt."
     fun takeScreenshotWithHash(forceFresh: Boolean = false, callback: (String?, Long) -> Unit) {
