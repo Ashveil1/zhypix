@@ -22,6 +22,21 @@ import java.io.ByteArrayOutputStream
 @RunWith(AndroidJUnit4::class)
 class LiveModelE2eTest {
     @Test fun modelNavigatesSettingsWithoutChangingAnything() = runBlocking {
+        drive("Open the Network & internet page from Android Settings. Do not toggle or change anything. Once the page is visibly open, return finished.",setOf("Network & internet"),6) {device->
+            val toolbar=device.findObject(By.res("com.android.settings:id/collapsing_toolbar"))
+            assertEquals("Network & internet",toolbar?.contentDescription)
+            assertNotNull("Destination page missing Internet row",device.findObject(By.text("Internet")))
+        }
+    }
+
+    @Test fun modelOpensTwoLevelsDeepWithoutChangingAnything() = runBlocking {
+        drive("In Android Settings, first open Network & internet, then open the Internet row inside it. Do not toggle or change anything. Once the Internet page is visibly open, return finished.",setOf("Network & internet","Internet"),8) {device->
+            val toolbar=device.findObject(By.res("com.android.settings:id/collapsing_toolbar"))
+            assertEquals("Internet",toolbar?.contentDescription)
+        }
+    }
+
+    private suspend fun drive(task:String,allowedLabels:Set<String>,maxSteps:Int,verify:(UiDevice)->Unit) {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         val context=instrumentation.targetContext
         val device=UiDevice.getInstance(instrumentation)
@@ -33,7 +48,7 @@ class LiveModelE2eTest {
         context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
         assertTrue(device.wait(Until.hasObject(By.pkg("com.android.settings")),10000))
         val evidence=java.io.File(context.filesDir,"live-model-evidence.txt")
-        evidence.writeText("Live model: ${config.getString("model")}\nTask: open Network & internet, change nothing\n")
+        evidence.writeText("Live model: ${config.getString("model")}\nTask: $task\nScreen: ${device.displayWidth}x${device.displayHeight}\n")
         val loop=ScreenLoop(
             capture={
                 device.waitForIdle(1000)
@@ -61,7 +76,7 @@ class LiveModelE2eTest {
                     JSONObject().put("screen_width",w).put("screen_height",h).put("scaled_screen_width",sw).put("scaled_screen_height",sh).toString())
             },
             decide={observation,history->
-                val reply=try{model.decide("Open the Network & internet page from Android Settings. Do not toggle or change anything. Once the page is visibly open, return finished.",observation,history)}catch(e:Exception){evidence.appendText("Model error: ${e.message}\n");throw e}
+                val reply=try{model.decide(task,observation,history)}catch(e:Exception){evidence.appendText("Model error: ${e.message}\n");throw e}
                 evidence.appendText("Reply: ${reply.take(300).replace("\n"," ")}\n")
                 reply},
             execute={action->
@@ -69,9 +84,8 @@ class LiveModelE2eTest {
                 // Deliberately narrow: no typing, app launch, purchases, settings toggles or arbitrary intents.
                 val success=when(action){
                     is ScreenAction.Click-> {
-                        val expected=device.findObject(By.text("Network & internet"))
-                        if(expected!=null && expected.visibleBounds.contains(action.x,action.y)) device.click(action.x,action.y)
-                        else false
+                        val hit=allowedLabels.any {label->device.findObjects(By.text(label)).any {it.visibleBounds.contains(action.x,action.y)}}
+                        if(hit) device.click(action.x,action.y) else false
                     }
                     ScreenAction.PressBack->device.pressBack()
                     is ScreenAction.Wait->{kotlinx.coroutines.delay(action.durationMs.coerceAtMost(3000));true}
@@ -80,13 +94,11 @@ class LiveModelE2eTest {
                 ScreenLoop.Execution(success,if(success)"Android input dispatched" else "Action outside the safe test subset")
             }
         )
-        val result=loop.run(maxSteps=6)
+        val result=loop.run(maxSteps=maxSteps)
         evidence.appendText("Terminal: $result\n")
         device.dumpWindowHierarchy(java.io.File(context.filesDir,"live-model-final.xml").absolutePath)
         assertTrue("Model did not report completion: $result",result is ScreenAction.Finished)
-        val toolbar=device.findObject(By.res("com.android.settings:id/collapsing_toolbar"))
-        assertEquals("Network & internet",toolbar?.contentDescription)
-        assertNotNull("Destination page missing Internet row",device.findObject(By.text("Internet")))
+        verify(device)
         evidence.appendText("PASS: destination independently verified. No settings changed.\n")
     }
 }
