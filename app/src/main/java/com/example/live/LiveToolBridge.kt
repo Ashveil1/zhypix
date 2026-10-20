@@ -1,7 +1,6 @@
 package com.example.live
 
 import android.content.Context
-import com.example.service.GestureMapper
 import com.example.service.ZhypixAccessibilityService
 import org.json.JSONArray
 import org.json.JSONObject
@@ -24,86 +23,12 @@ class LiveToolBridge(
      */
     var confirmAction: (suspend (actionType: String, target: String) -> Boolean)? = null
 
-    /** Live setup `tools` payload: one functionDeclarations group. */
-    fun toolsPayload(): JSONArray {
-        val decl = JSONObject()
-            .put("name", "computer_use_action")
-            .put(
-                "description",
-                "Execute a single action on the phone screen: clicking a button, scrolling, swiping, observing the screen hierarchy, typing, or opening apps."
-            )
-            .put(
-                "parameters",
-                JSONObject()
-                    .put("type", "OBJECT")
-                    .put(
-                        "properties",
-                        JSONObject()
-                            .put(
-                                "action_type",
-                                JSONObject()
-                                    .put("type", "STRING")
-                                    .put("description", "One of: CLICK, SWIPE, OBSERVE, TYPE, OPEN_APP, BACK, HOME")
-                            )
-                            .put(
-                                "target",
-                                JSONObject()
-                                    .put("type", "STRING")
-                                    .put(
-                                        "description",
-                                        "Coordinates 'x,y', a text label, a swipe direction (UP/DOWN/LEFT/RIGHT), a key (BACK/HOME), text to type, or an app name."
-                                    )
-                            )
-                    )
-                    .put("required", JSONArray().put("action_type").put("target"))
-            )
-        return JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(decl)))
-    }
+    /** No legacy screen tools are advertised during the rebuild. */
+    fun toolsPayload(): JSONArray = JSONArray()
 
-    /** Execute one Live tool call and build its toolResponse payload. */
-    suspend fun execute(call: LiveSessionManager.ToolCallRequest): JSONObject {
-        if (call.name != "computer_use_action") {
-            return JSONObject()
-                .put("status", "error")
-                .put("message", "Unknown tool: ${call.name}")
-        }
-
-        val actionType = call.args.optString("action_type", "").trim()
-        val target = call.args.optString("target", "").trim()
-        if (actionType.isEmpty()) {
-            return JSONObject()
-                .put("status", "error")
-                .put("message", "Missing required argument: action_type")
-        }
-
-        confirmAction?.let { confirm ->
-            if (!confirm(actionType, target)) {
-                return JSONObject()
-                    .put("status", "blocked")
-                    .put("message", "Action '$actionType' on '$target' was not confirmed by the user.")
-            }
-        }
-
-        val service = serviceProvider()
-        if (service == null) {
-            return JSONObject()
-                .put("status", "error")
-                .put("message", "Accessibility Service is not enabled. Ask the user to enable it in Settings.")
-        }
-
-        val result = GestureMapper.executeAction(service, actionType, target, contextProvider())
-        val hierarchy = try {
-            // Live's context is small (~60k): cap the tree per tool response.
-            service.awaitTreeSettle().take(MAX_HIERARCHY_CHARS)
-        } catch (e: Exception) {
-            ""
-        }
-        return buildResponse(result.success, result.message, hierarchy)
-    }
-
-    companion object {
-        private const val MAX_HIERARCHY_CHARS = 4000
-    }
+    suspend fun execute(call: LiveSessionManager.ToolCallRequest): JSONObject =
+        JSONObject().put("status", "error")
+            .put("message", "Screen control is being rebuilt and is currently unavailable.")
 
     internal fun buildResponse(success: Boolean, message: String, hierarchy: String): JSONObject {
         val resp = JSONObject()

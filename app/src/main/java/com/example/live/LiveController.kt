@@ -108,10 +108,6 @@ class LiveController(
     }
 
     companion object {
-        const val DEFAULT_SYSTEM_PROMPT =
-            "You are zhypix, an Android assistant with live screen control. " +
-            "You can see the user's screen as video frames and hear the user. " +
-            "Use the computer_use_action tool to tap, type, scroll, observe, or open apps. " +
-            "One action per call. Keep spoken answers short. Reply in the user's language."
+        const val DEFAULT_SYSTEM_PROMPT = ""
     }
 }

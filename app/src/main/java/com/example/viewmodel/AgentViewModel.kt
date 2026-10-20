@@ -250,45 +250,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun startInactivityWatchdog() {
-        watchdogJob?.cancel()
-        lastActionTime = System.currentTimeMillis()
-        watchdogJob = viewModelScope.launch(Dispatchers.IO) {
-            while (coroutineContext.isActive) {
-                kotlinx.coroutines.delay(1000L)
-                if (!_isProcessing.value) {
-                    break
-                }
-                if (_isProcessing.value && actionsExecutedInCurrentTurn > 0 && _agentState.value == AgentState.ACTING && !isExecutingWaitAction) {
-                    val elapsed = System.currentTimeMillis() - lastActionTime
-                    if (elapsed >= 5000L) {
-                        Log.i("Zhypix", "Inactivity Watchdog: 5 seconds elapsed without action! Triggering auto-resume screenshot...")
-                        lastActionTime = System.currentTimeMillis()
-                        
-                        addReasoningStep(
-                            "Inactivity Watchdog Triggered (5s)",
-                            "AI silent for 5 seconds without executing an action. Reading screen layout hierarchy to auto-resume.",
-                            "WARNING",
-                            "SYSTEM"
-                        )
-
-                        val service = com.example.service.ZhypixAccessibilityService.instance
-                        val currentH = service?.getActiveWindowHierarchy() ?: _lastHierarchy.value ?: ""
-
-                        val nudgeMsg = Content(
-                            role = "user",
-                            parts = mutableListOf<Part>().apply {
-                                add(Part(text = "[INACTIVITY_WATCHDOG_5S]: 5 seconds elapsed without action execution. Here is the latest screen state:\n$currentH\n\nPlease evaluate the screen and emit the next required action immediately. If the user's task is fully completed, state 'Task completed successfully.'"))
-                            }
-                        )
-                        conversationHistory.add(nudgeMsg)
-                        _agentState.value = AgentState.THINKING
-                        executeGeminiCall()
-                    }
-                }
-            }
-        }
-    }
+    fun startInactivityWatchdog() {}
 
     fun stopInactivityWatchdog() {
         watchdogJob?.cancel()
@@ -312,44 +274,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     var pendingSensitiveActionDesc: String? = null
     @Volatile
     private var sensitiveActionApproved: Boolean = false
-
-    private fun isSensitiveAction(act: String, tgt: String): Boolean {
-        val a = act.uppercase().trim()
-        if (a != "CLICK" && a != "TAP") return false
-        val t = tgt.lowercase()
-        val keywords = listOf(
-            "send", "pay", "confirm", "purchase", "buy now", "checkout", "transfer",
-            "โอน", "ชำระ", "ส่ง", "ยืนยัน", "ซื้อ", "จ่าย"
-        )
-        return keywords.any { t.contains(it) }
-    }
-
-    fun notifyScreenLoadingFinished(newHierarchy: String) {
-        if (_isProcessing.value) return
-        if (!wasWaitingForScreenLoad) return
-        if (conversationHistory.isEmpty()) return
-        
-        wasWaitingForScreenLoad = false
-        addReasoningStep("Auto-Resume: Screen Loading Finished", "Detected screen transition from loading to active content! Auto-resuming task...", "SUCCESS", "SYSTEM")
-            
-            viewModelScope.launch {
-                _isProcessing.value = true
-                wasWaitingForScreenLoad = true
-                _agentState.value = AgentState.THINKING
-                startInactivityWatchdog()
-                
-                _lastHierarchy.value = newHierarchy
-                
-                val updatedMsg = Content(
-                    role = "user",
-                    parts = mutableListOf<Part>().apply {
-                        add(Part(text = "[AUTO_RESUME_NOTIFICATION]: The screen has finished loading and new content is now visible!\nUpdated Screen Layout Hierarchy:\n$newHierarchy\n\nPlease evaluate the newly loaded screen and continue fulfilling the task automatically."))
-                    }
-                )
-                conversationHistory.add(updatedMsg)
-                executeGeminiCall()
-            }
-    }
 
     // Generic capability heuristic on the configured model id (AUTO vision mode).
     // Works for any provider's naming; not a model selection list.
@@ -737,7 +661,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             "autoSave" -> _autoSaveSettings.value = value.toBoolean()
             "autoSkipAds" -> {
                 _autoSkipAdsEnabled.value = value.toBoolean()
-                com.example.service.AutoAdSkipper.isEnabled = _autoSkipAdsEnabled.value
+                // Legacy automatic screen actions removed during rebuild.
             }
             "webSearch" -> _webSearchEnabled.value = true
             "visionMode" -> _visionMode.value = value
@@ -1267,21 +1191,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         mapOf(
             "functionDeclarations" to listOf(
                 mapOf(
-                    "name" to "report_task_status",
-                    "description" to "Report the terminal status of the current task and end the session. Use 'finished' when the task is done, 'failed' when it cannot be completed, 'message_user' or 'needs_confirmation' when you need the user's reply, 'need_login' when a login wall blocks the task, and 'encountered_captcha' when a captcha blocks progress.",
-                    "parameters" to mapOf(
-                        "type" to "OBJECT",
-                        "properties" to mapOf(
-                            "status" to mapOf(
-                                "type" to "STRING",
-                                "description" to "One of: finished, failed, message_user, needs_confirmation, need_login, encountered_captcha"
-                            ),
-                            "message" to mapOf("type" to "STRING", "description" to "Short message shown to the user.")
-                        ),
-                        "required" to listOf("status")
-                    )
-                ),
-                mapOf(
                     "name" to "remember_preference",
                     "description" to "Remember a user preference or fact like their favorite color, schedule, etc.",
                     "parameters" to mapOf(
@@ -1293,25 +1202,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         "required" to listOf("key", "value")
                     )
                 ),
-                mapOf(
-                    "name" to "computer_use_action",
-                    "description" to "Simulate executing a single action on the phone screen (e.g., clicking a button, scrolling, swiping, observing screen hierarchy, typing, or opening apps).",
-                    "parameters" to mapOf(
-                        "type" to "OBJECT",
-                        "properties" to mapOf(
-                            "action_type" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, DRAG_AND_DROP, OBSERVE, TYPE, OPEN_APP, BACK, HOME"
-                            ),
-                            "target" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Coordinate 'x,y', text label ('Search', 'Send'), swipe direction ('UP', 'DOWN'), key ('BACK', 'HOME'), text to type, or app name."
-                            )
-                        ),
-                        "required" to listOf("action_type", "target")
-                    )
-                ),
-
                 mapOf(
                     "name" to "execute_linux_command",
                     "description" to "Execute a real linux / bash command inside the local PRoot guest environment sandbox (e.g., ls, pwd, neofetch, apt install, python3). Returns the exact standard output from the guest bash terminal shell.",
@@ -1334,36 +1224,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         "required" to listOf("command")
                     )
                 ),
-                mapOf(
-                    "name" to "send_android_intent",
-                    "description" to "Directly send an Android System Intent to trigger system actions like setting alarms, creating calendar events, opening specific settings pages, initiating phone calls, or launching system flows with precise extras.",
-                    "parameters" to mapOf(
-                        "type" to "OBJECT",
-                        "properties" to mapOf(
-                            "action" to mapOf(
-                                "type" to "STRING",
-                                "description" to "The Android Intent action string, e.g. 'android.intent.action.SET_ALARM', 'android.intent.action.VIEW', 'android.settings.WIFI_SETTINGS', 'android.intent.action.SENDTO', 'android.intent.action.DIAL', etc."
-                            ),
-                            "data_uri" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Optional data URI string, e.g. 'tel:0812345678', 'mailto:example@example.com', 'https://maps.google.com/?q=bangkok', or 'smsto:0812345678'"
-                            ),
-                            "mime_type" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Optional MIME type, e.g. 'text/plain', 'vnd.android.cursor.dir/event'"
-                            ),
-                            "package_name" to mapOf(
-                                "type" to "STRING",
-                                "description" to "Optional package name to restrict the intent target, e.g. 'com.google.android.apps.maps', 'com.android.settings'"
-                            ),
-                            "extras" to mapOf(
-                                "type" to "OBJECT",
-                                "description" to "Optional key-value extras to attach to the intent. Can contain integers, doubles, booleans, or strings. For example: {'android.intent.extra.alarm.HOUR': 7, 'android.intent.extra.alarm.MINUTES': 30, 'android.intent.extra.alarm.MESSAGE': 'Wake up!', 'android.intent.extra.alarm.SKIP_UI': true}"
-                            )
-                        ),
-                        "required" to listOf("action")
-                    )
-                ),
+
                 mapOf(
                     "name" to "read_file",
                     "description" to "Directly read any file on Android storage or PRoot Linux container (supports all file extensions, text files UTF-8, or binary files via Base64 encoding).",
@@ -1531,7 +1392,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
         clearReasoningChain()
         addReasoningStep("User Query Received", "Processing command text: \"$text\"", "SUCCESS", "USER")
-        addReasoningStep("Initiating Reasoning Engine", "Preparing system prompts and loading historical conversational context.", "RUNNING", "SYSTEM")
+        addReasoningStep("Initiating Reasoning Engine", "Loading historical conversational context.", "RUNNING", "SYSTEM")
 
         conversationHistory.add(Content(parts = listOf(Part(text = text)), role = "user"))
 
@@ -1598,272 +1459,9 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 val screenHeight = if (isLinuxDesktop) 720 else metrics.heightPixels
                 val screenDensity = if (isLinuxDesktop) 1.0f else metrics.density
 
-                // Build system prompt based on preferences & personas
-                val personaPrompt = when (_selectedPersona.value) {
-                    "FRIENDLY" -> """
-                    ========================================
-                    === AI PERSONA: FRIENDLY & WARM ===
-                    ========================================
-                    - Speak politely, warmly, and empathetically with the user at all times.
-                    """.trimIndent()
-                    "CONCISE" -> """
-                    ========================================
-                    === AI PERSONA: CONCISE & DIRECT ===
-                    ========================================
-                    - Answer concisely and directly without filler or preamble.
-                    - Cut all unnecessary words.
-                    """.trimIndent()
-                    "TUTOR" -> """
-                    ========================================
-                    === AI PERSONA: EXPERT TUTOR ===
-                    ========================================
-                    - Act as an expert tutor, explaining concepts step by step with clear practical examples.
-                    """.trimIndent()
-                    "CUSTOM" -> if (_customPersonaPrompt.value.isNotBlank()) """
-                    ========================================
-                    === AI PERSONA: CUSTOM SYSTEM PROMPT ===
-                    ========================================
-                    ${_customPersonaPrompt.value}
-                    """.trimIndent() else ""
-                    else -> ""
-                }
+                val sysInstruction: Content? = null
 
-                val latestUserQuery = conversationHistory.lastOrNull { it.role == "user" }?.parts?.firstOrNull { it.text != null }?.text ?: ""
-                val prefsStr = getRelevantMemoriesString(latestUserQuery)
-
-                val hierarchyText = _lastHierarchy.value ?: "No hierarchy captured yet. Please perform open_app or take a screenshot."
-                val installedAppsText = getInstalledAppsSummary()
-                val currentDateStr = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", java.util.Locale.ENGLISH).format(java.util.Date())
-                val sysText = """
-                    You are Zhypix, an intelligent AI Assistant with a built-in real Linux PRoot Terminal sandbox, physical screen automation, persistent long-term memory, and web search capabilities.
-                    
-                    $personaPrompt
-                    
-                    ========================================
-                    === PERSISTENT LONG-TERM MEMORY ===
-                    ========================================
-                    The following facts and user preferences are saved across all sessions:
-                    $prefsStr
-                    - Note: Use `remember_preference` whenever the user shares personal details, preferences, schedules, or facts to save to long-term memory.
-
-                    ${if (installedAppsText.isNotBlank()) """
-                    ========================================
-                    === INSTALLED APPS ON THIS DEVICE ===
-                    ========================================
-                    $installedAppsText
-                    Use exact app labels or package names from this list for OPEN_APP targets.
-                    """ else ""}
-                    
-                    ${if (_ultraConciseMode.value) """
-                    ========================================
-                    === AI CORE DIRECTIVE: ULTRA-CONCISE & DIRECT ===
-                    ========================================
-                    1. General Response Rules
-                    * Cut all filler: No "Sure!", "Hello!", "Great question!", or "Hope this helps!".
-                    * Get straight to the point in the very first sentence.
-                    * Use short, punchy sentences. Avoid compound sentences with unnecessary words.
-                    * Use bullet points or numbered lists instead of long paragraphs.
-                    * If a question can be answered with a simple "Yes" or "No", do so, then provide minimal context.
-
-                    2. Explanation & Style
-                    * Maximize information density: Make every single word count.
-                    * Explain complex ideas using simple, universal terms and brief real-world analogies.
-                    * State facts directly. Do not hedge (No "In my opinion...", "It's important to note...", "As an AI...").
-                    * If you lack sufficient information or don't know the answer, state it instantly without apologizing.
-
-                    3. Formatting
-                    * Use clear Markdown headers (`#`, `##`) for scannability.
-                    * Bold (`**key terms**`) critical words so the user can skim the text in under 5 seconds.
-                    * Keep lists limited to 3-5 items maximum unless strictly requested otherwise.
-                    * Wrap all technical terms, code, or commands in backticks (`like this`).
-                    """ else ""}
-                    
-                    ========================================
-                    === FACT-CHECKING & TEMPORAL GUARDRAILS ===
-                    ========================================
-                    - CURRENT DATE: $currentDateStr
-                    - MANDATORY WEB SEARCH FOR CURRENT EVENTS & REAL-WORLD FACTS:
-                      1. ALWAYS CALL `web_search` FIRST for any query involving current events, recent news, sports matches/results, live data, weather, stock prices, or real-world facts that depend on current information.
-                      2. NEVER rely solely on memory or static weights for real-time/recent events. If a topic relates to current events or date-bound facts, invoke `web_search` BEFORE making any claims.
-                    - TEMPORAL FACT VERIFICATION & NO FUTURE HALLUCINATIONS:
-                      1. Check current date ($currentDateStr) before answering questions about real-world events, sports match results, news, or tournament outcomes.
-                      2. If a user asks for the result, score, or winner of an event taking place IN THE FUTURE (relative to $currentDateStr, e.g. FIFA World Cup 2026), NEVER hallucinate or invent fictional scores or match results! Explicitly explain that the event has not occurred yet, and state the scheduled future dates or historical context instead.
-                      3. CONISTENT UNIFIED RESPONSE: Do NOT output contradictory dual responses (such as inventing a future score in one sentence and then correcting yourself in the next). Wait for `web_search` search grounding results and output a single, accurate, factually grounded response.
-
-                    ========================================
-                    === TOOL SELECTION & EXECUTION GUIDE ===
-                    ========================================
-                    You have access to 6 powerful tools. Choose the correct tool based on the user's explicit request:
-
-                    1. `execute_linux_command` (BUILT-IN REAL LINUX TERMINAL SANDBOX & VIRTUAL DISPLAY SERVER - UBUNTU DEFAULT):
-                       - WHAT IT IS: Direct execution access to a local Ubuntu 24.04 LTS PRoot container with root privileges running on this Android device. Default shell is Bash (`/bin/bash`). Package manager is `apt` (`apt update && apt install -y ...`). Default environment is **Ubuntu**. You NEVER need to type `proot-distro login ubuntu` or `pkg update` because `execute_linux_command` automatically runs inside Ubuntu by default!
-                       - LINUX VIRTUAL DISPLAY & GUI SUPPORT:
-                         * The Linux environment features an integrated Headless X11 Virtual Display Server (`DISPLAY=:99` / 1280x720 24-bit TrueColor).
-                         * When asked to run GUI applications, open browsers (e.g. `google-chrome --no-sandbox`, `firefox`), launch desktop environments, or activate the Linux Display stream, execute the appropriate command via `execute_linux_command`. Running GUI/browser/X11 commands automatically activates the Linux Display Server stream view in the UI for the user.
-                       - LINUX DESKTOP GUI AUTOMATION RULES (CRITICAL):
-                         * NO ACCESSIBILITY PERMISSION REQUIRED: You do NOT need the user to turn on any Android accessibility settings to control the Linux screen! The virtual display is simulated internally via `xdotool`.
-                         * FIXED RESOLUTION: The Linux Virtual Display has a fixed resolution of exactly 1280x720.
-                         * HOW TO DO GESTURES ON LINUX DESKTOP: When the Linux Desktop is active (e.g. in the 'Desktop' tab or running a GUI app), you CAN use `computer_use_action` to control the Linux screen directly:
-                           1. `CLICK` / `TAP`: Use `target = "X,Y"` with coordinates in the range [0 to 1280] for X, and [0 to 720] for Y (e.g., `target = "640,360"` for the center).
-                           2. `TYPE`: Use `target = "text to type"` to input text into the active/focused field.
-                           3. `PRESS_KEY` / `KEY`: Use keys like `target = "Return"` (Enter), `target = "BackSpace"`, `target = "Tab"`, `target = "Escape"`, `target = "Up"`, `target = "Down"`, `target = "Left"`, `target = "Right"`.
-                           4. `SWIPE`:
-                              - To swipe or drag with precision, use `target = "sx,sy,ex,ey"` with raw start and end coordinates (e.g., `target = "100,500,100,200"`).
-                              - Or use simple direction keywords like `target = "UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`.
-                           5. `OBSERVE`: Use `target = "OBSERVE"` to trigger a refresh of the screen snapshot to check if the app opened or state changed, without performing any action.
-                         * HOW TO LAUNCH GUI APPS: To open a GUI app (e.g. Chrome, Firefox, xterm), execute it in the background via `execute_linux_command` (e.g., `google-chrome --no-sandbox > /dev/null 2>&1 &` or `firefox > /dev/null 2>&1 &`). Once launched, immediately use `computer_use_action` with `OBSERVE` to start perceiving the GUI!
-                       - MULTI-SESSION TERMINAL & CONCURRENT EXECUTION RULES:
-                         * Zhypix supports multiple separate terminal sessions (tabs) simultaneously!
-                         * Always use separate `session_name` values when starting different long-running tasks, GUI applications, or installations (e.g., `"Chrome"` for Google Chrome, `"PackageInstaller"` for apt install commands, `"ScriptRunner"` for python scripts) to prevent tasks from blocking or cluttering each other.
-                       - ENVIRONMENT SEPARATION RULES (DO NOT CONFUSE):
-                         * Linux PRoot Sandbox (`execute_linux_command`): Use for Linux/Bash commands, `apt` package manager (`apt install`), Python3, Node.js, C/C++ gcc, Linux CLI tools, Linux GUI apps / X11 virtual display (`DISPLAY=:99`, `google-chrome`, `firefox`), and Linux filesystem (`/root`, `/home`, `/tmp`). DO NOT run `pkg` (Termux command) inside PRoot as PRoot uses `apt`.
-                         * Android Host OS Actions: Use `send_android_intent` for Android system actions (Alarms, WiFi/Settings, Dialing), `computer_use_action` for physical Android app screen gestures (YouTube, Chrome, LINE), and `read_file`/`write_file` for device storage (`/sdcard`, `/storage/emulated/0`).
-                       - PARAMETERS:
-                         * `command` (required): The shell command line to execute (e.g. `neofetch`, `ls -la`, `pwd`, `mkdir -p test`, `python3 script.py`, `apt update && apt install -y curl`).
-                         * `distro` (optional): Guest distro alias (default is `"ubuntu"`, or specify `"debian"`, `"alpine"`, `"kali"`, `"archlinux"` if requested).
-                         * `session_name` (optional): Specific terminal session or tab name to execute this command in (e.g. 'Chrome', 'ScriptRunner', 'PackageInstaller'). Use this parameter to open or switch to a separate terminal session. If the session doesn't exist yet, a new terminal session with this name is automatically created/summoned! This allows you to perform multi-tasking and parallel processing (e.g. running multiple background processes or GUI applications in different sessions).
-                       - CAPABILITIES:
-                         * Running shell tools: `ls`, `cd`, `pwd`, `mkdir`, `cat`, `grep`, `neofetch`, `uname -a`, `df -h`, `top`, `curl`, `wget`, `git`.
-                         * Programming runtimes: `python3`, `node`, `gcc`, `g++`, `bash`, `perl`.
-                         * Package managers: `apt` (Ubuntu/Debian/Kali), `apk` (Alpine), `pacman` (Arch Linux).
-                         * Container management: `proot-distro list`, `proot-distro install <alias>`, `proot-distro login <alias>`, `proot-distro status`.
-                         * Stateful session: The shell remembers working directory (`cd`), environment variables, and active distro.
-                       - CRITICAL RULE FOR TERMINAL: Whenever the user asks to run Linux/shell commands, check system specs (`neofetch`), inspect or manage files, write/run Python code, install Linux packages, or manage Linux distros, YOU MUST CALL `execute_linux_command` IMMEDIATELY. You NEVER need to ask the user to open a terminal app on their screen because you have direct tool access!
-
-                    2. `computer_use_action` (PHYSICAL SCREEN GESTURE AUTOMATION):
-                       - STRICT SINGLE-ACTION RULE: You MUST emit EXACTLY ONE `computer_use_action` per response turn! NEVER emit multiple function calls or batch actions (such as multiple SWIPE, SCROLL, DRAG, or CLICK calls) in a single turn.
-                       - How it works: Execute 1 action -> the system waits for screen settlement (3.0s for OPEN_APP, 0.3s for all other actions) -> system captures a fresh screenshot and layout hierarchy -> you inspect the updated image in the next turn before deciding the next action.
-                       - ACTION TYPES & TARGET FORMATS:
-                         * `CLICK` / `TAP`:
-                           - By Coordinates: `target = "X,Y"` (use `Center=(X,Y)` directly from Screen Hierarchy).
-                           - By Element Text/Description: `target = "Send"`, `target = "Search"`, `target = "YouTube"`, `target = "Play"`.
-                         * `SWIPE`: Direction `target = "UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`.
-                         * `DOUBLE_CLICK`: Same target formats as CLICK. Use for zoom toggles or double-tap-to-select UIs.
-                         * `LONG_PRESS`: Same target formats as CLICK. Use to open context menus, select text, or start drags.
-                         * `DRAG_AND_DROP`: `target = "x1,y1 -> x2,y2"` (long-press at the start point, drag, release).
-                         * `TYPE`: `target = "text to type"` (Inputs text into focused field).
-                         * `GLOBAL_ACTION` / `BACK` / `HOME`: `target = "BACK"` or `target = "HOME"`.
-                         * `OPEN_APP`: `target = "App Name"` (e.g. "YouTube", "LINE", "Chrome", "Settings").
-                       
-                       - RECOMMENDED WORKFLOW FOR MULTI-STEP TASKS:
-                         When the user asks for a multi-step task (e.g. "Open YouTube and search for song X"):
-                         Step 1: Emit 1 `computer_use_action` with `OPEN_APP` "YouTube".
-                         Step 2: Inspect the fresh screenshot/hierarchy from YouTube, then emit 1 `computer_use_action` to `CLICK` "Search".
-                         Step 3: Inspect the updated search layout, then emit 1 `computer_use_action` to `TYPE` "song X".
-                         Executing strictly 1 action per turn guarantees 100% precision because you receive a fresh screenshot at every step!
-                    ${if (_webSearchEnabled.value) """
-                    3. `web_search` & `read_url` (REAL-TIME ONLINE WEB SEARCH & SCRAPING):
-                       - WHAT IT IS: Search DuckDuckGo or fetch and read full webpage content in Markdown.
-                       - WHEN TO USE: When the user asks for current real-time online information, news, live weather, or web documentation.
-                    """ else ""}
-                    4. `report_task_status` (TASK TERMINAL STATUS):
-                       - Call this INSTEAD of plain text when the task reaches a terminal state: 'finished' when fully done, 'failed' when it cannot be completed, 'message_user' or 'needs_confirmation' when you need the user's reply, 'need_login' when a login screen blocks progress, 'encountered_captcha' when a captcha blocks progress.
-                       - Always include a short `message` for the user.
-
-                    5. `remember_preference` (LOCAL MEMORY STORE):
-                       - WHAT IT IS: Stores key user preferences and facts permanently.
-                       - WHEN TO USE: When learning a new fact about the user.
-
-                    5. `send_android_intent` (DIRECT SYSTEM & MEDIA INTENT DISPATCHER - HIGHEST PRIORITY FOR ACTIONS):
-                       - WHAT IT IS: Dispatches instant Android Intents to interact directly with apps and OS without clicking buttons on screen.
-                       - CRITICAL EFFICIENCY RULE (INTENTS FIRST, THEN CLICK TO PLAY): When the user asks to play music, watch a video, or search YouTube/Spotify:
-                         1. Step 1: ALWAYS emit `send_android_intent` FIRST to instantly open the search results/app with 0 delay!
-                         2. Step 2: After the Intent opens the search page/app, the system will immediately return the updated screenshot & hierarchy of the search results to you.
-                         3. Step 3: YOU MUST IMMEDIATELY EMIT A `computer_use_action` (`CLICK`) to tap the first video / song / playlist to START PLAYING IT! DO NOT stop after just opening the search results; ALWAYS click and open the video/song for the user!
-                       - COMMON DIRECT INTENT USE CASES:
-                         * Play Music / Video on YouTube:
-                           - Search & play on YouTube: `action = "android.intent.action.VIEW"`, `data_uri = "https://www.youtube.com/results?search_query=QUERY_ENCODED"`, `package_name = "com.google.android.youtube"`
-                           - Direct video playback: `action = "android.intent.action.VIEW"`, `data_uri = "https://www.youtube.com/watch?v=VIDEO_ID"`, `package_name = "com.google.android.youtube"`
-                         * Play Song / Search on Spotify:
-                           - Search Spotify: `action = "android.intent.action.VIEW"`, `data_uri = "spotify:search:QUERY_ENCODED"`, `package_name = "com.spotify.music"`
-                         * Media Search / Voice Search in Music Apps:
-                           - `action = "android.media.action.MEDIA_PLAY_FROM_SEARCH"`, extras: `{"query": "song or artist name"}`
-                         * Web Search / Open URL in Browser:
-                           - Open URL: `action = "android.intent.action.VIEW"`, `data_uri = "https://example.com"`
-                           - Web Search: `action = "android.intent.action.WEB_SEARCH"`, extras: `{"query": "search query"}`
-                         * Navigation / Maps:
-                           - `action = "android.intent.action.VIEW"`, `data_uri = "google.navigation:q=destination_name"` or `"https://maps.google.com/?q=destination_name"`
-                         * Setting Alarms & Timers:
-                           - Set Alarm: `action = "android.intent.action.SET_ALARM"`, extras: `{"android.intent.extra.alarm.HOUR": 7, "android.intent.extra.alarm.MINUTES": 30, "android.intent.extra.alarm.MESSAGE": "Wake Up", "android.intent.extra.alarm.SKIP_UI": true}`
-                           - Set Timer: `action = "android.intent.action.SET_TIMER"`, extras: `{"android.intent.extra.alarm.LENGTH": 300, "android.intent.extra.alarm.MESSAGE": "Eggs", "android.intent.extra.alarm.SKIP_UI": true}`
-                         * System Settings & Quick Controls:
-                           - `action = "android.settings.WIFI_SETTINGS"`, `action = "android.settings.BLUETOOTH_SETTINGS"`, `action = "android.settings.SETTINGS"`
-                         * Phone & Messaging:
-                           - Dial phone number: `action = "android.intent.action.DIAL"`, `data_uri = "tel:0812345678"`
-                           - Send SMS: `action = "android.intent.action.SENDTO"`, `data_uri = "smsto:0812345678"`, extras: `{"sms_body": "Hello"}`
-                       - ADVANTAGE: Direct Intent dispatch is instantaneous. Pairing Intent for instant opening + 1 Click to play produces the fastest, most magical experience!
-
-                    6. `read_file`, `write_file`, & `list_directory` (DIRECT UNIVERSAL FILE I/O ENGINE):
-                       - WHAT IT IS: Direct native file reading, writing, appending, and directory listing engine across both Android system storage (`/sdcard`, `/storage/emulated/0`, etc.) AND PRoot Linux guest containers (`/root`, `/etc`, `/home`, etc.).
-                       - CAPABILITIES:
-                         * Read/Write any file type or extension (`.txt`, `.py`, `.sh`, `.json`, `.png`, `.jpg`, `.pdf`, `.zip`, `.cpp`, `.apk`, `.bin`, `.conf`, `.mp3`, `.mp4`, etc.).
-                         * Binary file support: Pass `is_binary_base64 = true` to receive Base64 encoded binary data in `read_file` or write Base64 binary data in `write_file`.
-                         * Automatic directory creation: `write_file` automatically creates parent directories if they don't exist.
-                         * Unified path resolution: Supports direct Android paths (`/sdcard/Download/file.txt`), PRoot paths (`/root/script.py`), and distro-specific paths (`distro = "ubuntu"`).
-                       - WHEN TO USE: Whenever asked to read, write, modify, create, append, view, or list files in any folder or distro!
-
-                    ========================================
-                    === PHYSICAL DEVICE SCREEN METRICS ===
-                    ========================================
-                    - Screen Width: $screenWidth px | Screen Height: $screenHeight px | Density: $screenDensity
-                    - All CLICK/TAP coordinates MUST lie within [0, $screenWidth] range for X, and [0, $screenHeight] range for Y.
-                    - COORDINATE SPACE: hierarchy Bounds=/Center= values and the screenshot image share ONE coordinate space (the screenshot image's pixel space, whose size is given with each post-action snapshot). Emit Bounds/Center values EXACTLY as printed for CLICK/LONG_PRESS/DOUBLE_CLICK/SWIPE targets - the executor maps them to the physical screen automatically. Never rescale coordinates yourself and never estimate pixel positions from the image alone; always prefer the printed Bounds/Center of the target element.
-                    - Prefer CLICK with the element's visible Text or Desc when available; use coordinates only when no text target exists.
-
-                    ========================================
-                    === AUTOMATED YOUTUBE AD-SKIPPER ACTIVE ===
-                    ========================================
-                    - Zhypix has a real-time background Auto-Ad Skipper enabled in Accessibility Service.
-                    - When YouTube plays an ad, the service automatically detects and clicks 'Skip Ad' or 'ข้ามโฆษณา' as soon as the 5-second countdown finishes.
-                    - You do NOT need to pause or get stuck waiting for ads; proceed directly with user tasks or let the background service automatically skip ads.
-
-                    ========================================
-                    === FAST AUTOMATED RESUME & OPTIMAL SCREEN EFFICIENCY ===
-                    ========================================
-                    - DO NOT use `WAIT` unnecessarily! The system automatically monitors layout updates and UI settlement instantly after every action.
-                    - ONLY use `WAIT` if the screen is explicitly showing an active loading spinner or progress bar.
-                    - For screen automation, ALWAYS use `computer_use_action` step-by-step! This gives you updated visual perception after each step and eliminates errors caused by dynamic screen layout changes.
-
-                    ========================================
-                    === CONNECTED SERVICES & APP CONNECTORS ===
-                    ========================================
-                    - Zhypix supports App Connectors & Cloud Integrations (GitHub, Google Workspace, Notion, Slack, Jira, Linear, Supabase, Tavily, etc.).
-                    - GITHUB CONNECTORS & DIRECT API ACCESS:
-                      * You CAN access the user's GitHub account and repositories directly via GitHub REST APIs (using `execute_linux_command` with `curl` or Python script)!
-                      * When asked about GitHub repos, starred repositories, issues, pull requests, or profile details (e.g. "can you access github?", "show my starred repos", "check my github repos"):
-                        1. DO NOT open the physical GitHub Android app on screen unless the user explicitly requests screen UI automation!
-                        2. Instead, use `execute_linux_command` to execute GitHub REST API calls via `curl` or Python.
-                           - For starred repos: `curl -s "https://api.github.com/users/<username_or_user>/starred"` or `curl -s -H "Authorization: Bearer <TOKEN>" "https://api.github.com/user/starred"`
-                           - For user repos: `curl -s "https://api.github.com/users/<username_or_user>/repos"` or `curl -s -H "Authorization: Bearer <TOKEN>" "https://api.github.com/user/repos"`
-                        3. Format and present the fetched repository list cleanly to the user in response.
-                      * For other connected services (Notion, Slack, Jira, Supabase, Google Workspace, Tavily AI Search), use direct REST API calls via `execute_linux_command` (`curl`/Python) or `web_search` to query data directly rather than opening physical apps on screen.
-
-                    ========================================
-                    === GENERAL DIRECTIVES & BEHAVIOR ===
-                    ========================================
-                    1. FIRST, analyze the user's request:
-                       - Terminal command / code / system info / file operation -> Use `execute_linux_command`.
-                       - External Android screen control -> Use `computer_use_action`.
-                       - Online web info -> Use `web_search` / `read_url`.
-                       - Chat / Explanation / Greeting -> Respond purely with text (DO NOT call screen tools!).
-                    2. ALWAYS speak in concise, natural English.
-                    3. When calling a tool, announce briefly in English what you are doing (e.g., "Executing neofetch in Linux Terminal...", "Launching Chrome browser...").
-                    4. NEVER stop or give up until the user's requested goal is completely fulfilled.
-                    5. Keep explanations brief and to the point.
-                    6. INCOMPLETE USER INPUTS & CLARIFICATION PROMPT: If the user provides an instruction or command that is ambiguous, too broad, or lacks sufficient details/context needed to successfully execute the task, DO NOT guess or execute actions blindly. Instead, politely ask the user specific clarifying questions to gather the missing information first.
-
-                    ========================================
-                    === AUTOMATIC SCREEN LAYOUT HIERARCHY ===
-                    ========================================
-                    $hierarchyText
-
-                    Current Learned Memory Preferences:
-                    $prefsStr
-                """.trimIndent()
-                
-                val sysInstruction = Content(parts = listOf(Part(text = sysText)), role = "system")
-
-                addReasoningStep("Synthesizing System Prompt", "Injecting guidelines, model roles, and learned memory preferences.", "SUCCESS", "SYSTEM")
+                // Legacy system prompts removed.
 
                 val thinkingCfg = if (_thinkingLevel.value == "NONE") {
                     null
@@ -2018,7 +1616,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     val openAiMessages = mutableListOf<Map<String, Any>>()
                     
                     // System prompt
-                    openAiMessages.add(mapOf("role" to "system", "content" to sysText))
+                    // No legacy system instruction.
                     
                     // Conversation history
                     for (msg in conversationHistory) {
@@ -2094,21 +1692,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         mapOf(
                             "type" to "function",
                             "function" to mapOf(
-                                "name" to "report_task_status",
-                                "description" to "Report the terminal status of the current task and end the session. Use 'finished' when done, 'failed' when impossible, 'message_user' or 'needs_confirmation' when you need the user's reply, 'need_login' when blocked by a login, 'encountered_captcha' when blocked by a captcha.",
-                                "parameters" to mapOf(
-                                    "type" to "object",
-                                    "properties" to mapOf(
-                                        "status" to mapOf("type" to "string", "description" to "One of: finished, failed, message_user, needs_confirmation, need_login, encountered_captcha"),
-                                        "message" to mapOf("type" to "string", "description" to "Short message shown to the user.")
-                                    ),
-                                    "required" to listOf("status")
-                                )
-                            )
-                        ),
-                        mapOf(
-                            "type" to "function",
-                            "function" to mapOf(
                                 "name" to "remember_preference",
                                 "description" to "Remember a user preference or fact like their favorite color, schedule, etc.",
                                 "parameters" to mapOf(
@@ -2121,28 +1704,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             )
                         ),
-                        mapOf(
-                            "type" to "function",
-                            "function" to mapOf(
-                                "name" to "computer_use_action",
-                                "description" to "Simulate executing a single action on the phone screen (e.g., clicking a button, swiping, typing, opening apps, or global back/home).",
-                                "parameters" to mapOf(
-                                    "type" to "object",
-                                    "properties" to mapOf(
-                                        "action_type" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, DRAG_AND_DROP, TYPE, OPEN_APP, GLOBAL_ACTION, BACK, HOME, OBSERVE, WAIT"
-                                        ),
-                                        "target" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Target coordinates 'x,y' OR text label ('Search', 'Send'), direction ('UP', 'DOWN'), key ('BACK', 'HOME'), or text to type / app name."
-                                        )
-                                    ),
-                                    "required" to listOf("action_type", "target")
-                                )
-                            )
-                        ),
-
                         mapOf(
                             "type" to "function",
                             "function" to mapOf(
@@ -2164,39 +1725,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             )
                         ),
-                        mapOf(
-                            "type" to "function",
-                            "function" to mapOf(
-                                "name" to "send_android_intent",
-                                "description" to "Directly send an Android System Intent to trigger system actions like setting alarms, creating calendar events, opening specific settings pages, initiating phone calls, or launching system flows with precise extras.",
-                                "parameters" to mapOf(
-                                    "type" to "object",
-                                    "properties" to mapOf(
-                                        "action" to mapOf(
-                                            "type" to "string",
-                                            "description" to "The Android Intent action string, e.g. 'android.intent.action.SET_ALARM', 'android.intent.action.VIEW', 'android.settings.WIFI_SETTINGS', 'android.intent.action.SENDTO', 'android.intent.action.DIAL', etc."
-                                        ),
-                                        "data_uri" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Optional data URI string, e.g. 'tel:0812345678', 'mailto:example@example.com', 'https://maps.google.com/?q=bangkok', or 'smsto:0812345678'"
-                                        ),
-                                        "mime_type" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Optional MIME type, e.g. 'text/plain', 'vnd.android.cursor.dir/event'"
-                                        ),
-                                        "package_name" to mapOf(
-                                            "type" to "string",
-                                            "description" to "Optional package name to restrict the intent target, e.g. 'com.google.android.apps.maps', 'com.android.settings'"
-                                        ),
-                                        "extras" to mapOf(
-                                            "type" to "object",
-                                            "description" to "Optional key-value extras to attach to the intent. Can contain integers, doubles, booleans, or strings. For example: {'android.intent.extra.alarm.HOUR': 7, 'android.intent.extra.alarm.MINUTES': 30, 'android.intent.extra.alarm.MESSAGE': 'Wake up!', 'android.intent.extra.alarm.SKIP_UI': true}"
-                                        )
-                                    ),
-                                    "required" to listOf("action")
-                                )
-                            )
-                        )
+
                     )
                     
                     baseOpenAiTools.add(mapOf(
@@ -2558,40 +2087,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         if (functionCalls.isNotEmpty()) {
             addReasoningStep("Evaluating Tool Invocation Graph", "Parsing structural function calls (${functionCalls.size} tasks proposed).", "RUNNING", "SYSTEM")
             val responseParts = mutableListOf<Part>()
-            var hasExecutedScreenActionInTurn = false
-
             for (call in functionCalls) {
-                if (call.name == "computer_use_action") {
-                    if (hasExecutedScreenActionInTurn) {
-                        addReasoningStep("Single Action Enforcement", "Action '${call.name}' skipped: Only 1 action allowed per turn to guarantee fresh screenshot perception.", "WARNING", "TOOL")
-                        responseParts.add(Part(functionResponse = FunctionResponse(
-                            name = call.name,
-                            response = mapOf(
-                                "status" to "skipped",
-                                "message" to "Skipped. Exactly 1 action is executed per turn. Please re-evaluate using the newly captured post-action screenshot before emitting your next action."
-                            )
-                        )))
-                        continue
-                    }
-                    hasExecutedScreenActionInTurn = true
-                }
-
                 when (call.name) {
-                    "report_task_status" -> {
-                        val status = ((call.args?.get("status") as? String) ?: "finished").lowercase().trim()
-                        val message = (call.args?.get("message") as? String) ?: ""
-                        pendingTerminalStatus = status
-                        pendingTerminalMessage = message
-                        com.example.agent.AgentDiagnostics.recordEvent("terminal", "status=$status message=$message")
-                        addReasoningStep("Terminal status reported", "status=$status: $message", "WARNING", "SYSTEM")
-                        responseParts.add(Part(functionResponse = FunctionResponse(
-                            name = call.name,
-                            response = mapOf(
-                                "status" to "acknowledged",
-                                "message" to "Terminal status '$status' recorded. The session is ending now; do not emit further actions."
-                            )
-                        )))
-                    }
                     "remember_preference" -> {
                         val k = call.args?.get("key") as? String ?: ""
                         val v = call.args?.get("value") as? String ?: ""
@@ -2725,79 +2222,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             val currentMsgs = _messages.value.toMutableList()
                             val lastIdx = currentMsgs.indexOfLast { it is ChatMessage.TaskExecution && it.action.actionType == "READ_URL" && it.action.target == url }
                             if (lastIdx != -1) currentMsgs[lastIdx] = ChatMessage.TaskExecution(AgentAction("READ_URL", url), "Failed")
-                        }
-                    }
-                    "send_android_intent" -> {
-                        val action = call.args?.get("action") as? String ?: ""
-                        val dataUri = call.args?.get("data_uri") as? String
-                        val mimeType = call.args?.get("mime_type") as? String
-                        val packageName = call.args?.get("package_name") as? String
-                        val extrasRaw = call.args?.get("extras")
-                        
-                        val extras = when (extrasRaw) {
-                            is Map<*, *> -> extrasRaw.entries.associate { (k, v) -> k.toString() to (v ?: "") }
-                            else -> null
-                        }
-
-                        addReasoningStep("Android System Intent Dispatch", "Action: \"$action\", URI: $dataUri", "RUNNING", "TOOL")
-                        
-                        val actionObj = AgentAction("INTENT", action)
-                        _messages.value = _messages.value + ChatMessage.TaskExecution(actionObj, "Sending Intent...")
-
-                        val outcome = executeAndroidIntent(action, dataUri, mimeType, packageName, extras)
-                        runningActionLog.add("INTENT", action, outcome.first, outcome.second)
-                        
-                        val currentMsgs = _messages.value.toMutableList()
-                        val lastIdx = currentMsgs.indexOfLast { it is ChatMessage.TaskExecution && it.action.actionType == "INTENT" && it.action.target == action }
-                        if (lastIdx != -1) {
-                            currentMsgs[lastIdx] = ChatMessage.TaskExecution(actionObj, if (outcome.first) "Completed" else "Failed", resultSnippet = outcome.second)
-                            _messages.value = currentMsgs
-                        } else {
-                            _messages.value = _messages.value + ChatMessage.TaskExecution(actionObj, if (outcome.first) "Completed" else "Failed", resultSnippet = outcome.second)
-                        }
-
-                        if (outcome.first) {
-                            addReasoningStep("Android System Intent Successful", outcome.second, "SUCCESS", "TOOL")
-
-                            // Wait for the target intent activity to launch & settle on screen
-                            val service = com.example.service.ZhypixAccessibilityService.instance
-                            var postIntentHierarchy = ""
-                            var base64Img: String? = null
-                            if (service != null) {
-                                val delayMs = 1200L
-                                addReasoningStep("App Transition Settle Delay (${delayMs}ms)", "Waiting for target app screen to render...", "RUNNING", "SYSTEM")
-                                kotlinx.coroutines.delay(delayMs)
-                                service.invalidateScreenshotCache()
-                                postIntentHierarchy = service.getActiveWindowHierarchy()
-                                base64Img = service.awaitFrameSettle(maxWaitMs = 3000L, forceFresh = true)
-                                if (base64Img != null) {
-                                    _lastScreenshot.value = base64Img
-                                    _lastHierarchy.value = postIntentHierarchy
-                                    addReasoningStep("Intent Viewport captured", "Captured post-intent screen layout and visual frame.", "SUCCESS", "SYSTEM")
-                                    if (isVisionActive()) {
-                                        responseParts.add(Part(inlineData = com.example.api.InlineData("image/jpeg", base64Img)))
-                                    }
-                                    responseParts.add(Part(text = "App opened via Intent successfully. Current screen layout hierarchy:\n$postIntentHierarchy\n\nNext step: If the user wanted to play or open an item, emit 1 CLICK on the target video / song / element to start playback!"))
-                                }
-                            }
-
-                            responseParts.add(Part(functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf(
-                                    "status" to "success",
-                                    "message" to outcome.second,
-                                    "current_screen_hierarchy" to postIntentHierarchy
-                                )
-                            )))
-                        } else {
-                            addReasoningStep("Android System Intent Failed", outcome.second, "FAILED", "TOOL")
-                            responseParts.add(Part(functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf(
-                                    "status" to "error",
-                                    "message" to outcome.second
-                                )
-                            )))
                         }
                     }
                     "execute_linux_command" -> {
@@ -2970,240 +2394,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             response = res
                         )))
                     }
-                    "computer_use_action" -> {
-                        val act = call.args?.get("action_type") as? String ?: "UNKNOWN"
-                        val tgt = call.args?.get("target") as? String ?: "UNKNOWN"
 
-                        if (touchPauseRequested) {
-                            addReasoningStep("Paused by user touch", "Action $act skipped because the user touched the screen.", "WARNING", "SYSTEM")
-                            responseParts.add(Part(functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf(
-                                    "status" to "paused",
-                                    "message" to "The user touched the screen. The agent is now paused; await the user's next instruction."
-                                )
-                            )))
-                        } else if (isSensitiveAction(act, tgt) && !sensitiveActionApproved) {
-                            // Confirm-before-send gate: hold the action, ask the user, halt the loop.
-                            pendingSensitiveActionDesc = "$act on '$tgt'"
-                            addReasoningStep("Confirmation required", "Sensitive action $act on '$tgt' is held until the user confirms.", "WARNING", "SYSTEM")
-                            _messages.value += ChatMessage.System("Zhypix wants to $act \"$tgt\" - this may send, pay, or confirm something. Reply 'confirm' to proceed or 'cancel' to skip.")
-                            responseParts.add(Part(functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf(
-                                    "status" to "awaiting_user_confirmation",
-                                    "message" to "This action looks sensitive (sending, paying, or confirming). It is held until the user explicitly confirms. Do not retry it now."
-                                )
-                            )))
-                        } else if (actionsExecutedInCurrentTurn >= MAX_ACTIONS_PER_TURN) {
-                            // Runaway-loop guard: stop the turn instead of letting a
-                            // confused model act forever.
-                            addReasoningStep("Action limit reached", "Hit the per-turn cap of $MAX_ACTIONS_PER_TURN actions. Stopping the turn.", "WARNING", "SYSTEM")
-                            _messages.value += ChatMessage.System("Stopped after $MAX_ACTIONS_PER_TURN actions in one go - the agent may be stuck. Tell me what to adjust and I will continue.")
-                            responseParts.add(Part(functionResponse = FunctionResponse(
-                                name = call.name,
-                                response = mapOf(
-                                    "status" to "aborted_action_limit",
-                                    "message" to "Per-turn action limit ($MAX_ACTIONS_PER_TURN) reached. The turn is stopped. Do not emit further actions."
-                                )
-                            )))
-                            turnAbortRequested = true
-                        } else {
-                        if (sensitiveActionApproved) sensitiveActionApproved = false
-
-                        if (act == "WAIT" || act == "SLEEP") {
-                            isExecutingWaitAction = true
-                        }
-                        // counted once at dispatch (see below); watchdog timer reset only
-                        lastActionTime = System.currentTimeMillis()
-
-                        val actionObj = AgentAction(act, tgt)
-                        _activeAction.value = actionObj
-                        _actionHistory.value = _actionHistory.value + actionObj
-                        _messages.value += ChatMessage.TaskExecution(actionObj, "Executing...")
-                        
-                        addReasoningStep("Action dispatch queued: $act", "Details: target='$tgt'. Simulating UI interactions.", "RUNNING", "TOOL")
-                        _agentState.value = AgentState.ACTING
-                        
-                        val service = com.example.service.ZhypixAccessibilityService.instance
-                        val preconditionPassed = service?.verifyPrecondition(act, tgt) ?: true
-                        
-                        if (!preconditionPassed) {
-                            addReasoningStep("Precondition Guard Alert", "Target '$tgt' missing or not visible on screen. Skipping action to prevent misclicks.", "WARNING", "TOOL")
-                        }
-                        
-                        var actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
-                        var actionResult = actionOutcome.result
-                        recordActionExecuted()
-
-                        // One bounded retry for failed gesture actions: transient
-                        // dispatch failures (system cancelled the gesture mid-animation,
-                        // window churn) often succeed on a single retry after 1s.
-                        // Non-gesture actions and terminal/blocked outcomes are never retried.
-                        val retryableGestureActions = setOf("CLICK", "TAP", "DOUBLE_CLICK", "DOUBLE_TAP", "LONG_PRESS", "LONG_CLICK", "PRESS_AND_HOLD", "SWIPE", "SCROLL")
-                        if (!actionResult.success && act in retryableGestureActions && service != null && !turnAbortRequested) {
-                            com.example.agent.AgentDiagnostics.recordEvent("action", "retrying failed gesture: $act '$tgt' - ${actionResult.message}")
-                            addReasoningStep("Retrying failed gesture", "Action $act failed once ('${actionResult.message}'). Retrying once after 1s.", "RUNNING", "TOOL")
-                            kotlinx.coroutines.delay(1000L)
-                            actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
-                            actionResult = actionOutcome.result
-                            if (actionResult.success) {
-                                addReasoningStep("Gesture retry succeeded", "Action: $act succeeded on retry.", "SUCCESS", "TOOL")
-                            }
-                        }
-
-                        if (act == "WAIT" || act == "SLEEP") {
-                            isExecutingWaitAction = false
-                        }
-                        
-                        if (actionResult.success) {
-                            addReasoningStep("Action simulation completed", "Action: $act. Service message outcome: ${actionResult.message}", "SUCCESS", "TOOL")
-                        } else {
-                            addReasoningStep("Action simulation failed", "Action: $act. Reason: ${actionResult.message}", "FAILED", "TOOL")
-                        }
-                        
-                        var base64Img: String? = null
-                        var postActionHierarchy = ""
-                        val isLinuxDesktop = com.example.utils.LinuxTerminalSimulator.isDesktopScreenActive.value
-                        
-                        if (isLinuxDesktop) {
-                            val actionDelayMs = 300L
-                            addReasoningStep("Post-Action Settlement Delay (${actionDelayMs}ms)", "Waiting ${actionDelayMs.toFloat() / 1000f}s after $act before capturing screenshot...", "RUNNING", "SYSTEM")
-                            kotlinx.coroutines.delay(actionDelayMs)
-                            
-                            addReasoningStep("Capturing Post-Action Linux Desktop", "Taking virtual display (X11 :99) screenshot...", "RUNNING", "SYSTEM")
-                            base64Img = com.example.utils.LinuxTerminalSimulator.captureX11Screenshot()
-                            if (base64Img != null) {
-                                _lastScreenshot.value = base64Img
-                                postActionHierarchy = "<screen width=\"1280\" height=\"720\"><linux_desktop/></screen>"
-                                _lastHierarchy.value = postActionHierarchy
-                                addReasoningStep("Linux Desktop snapshot synced", "Successfully captured post-action X11 frame.", "SUCCESS", "SYSTEM")
-                            }
-                        }
-                        
-                        if (base64Img == null && service != null && !isLinuxDesktop) {
-                            val normAct = act.uppercase().trim()
-                            // Event-driven settle: wait until the AccessibilityEvent stream
-                            // goes quiet (120ms without events) instead of a fixed sleep.
-                            // Typical taps settle in ~150-300ms vs the old fixed 450ms,
-                            // and app launches break early instead of always waiting 1200ms.
-                            _lastScreenshot.value = null
-                            service.invalidateScreenshotCache()
-                            // Screenshot capture is callback-based and mostly idle
-                            // waiting; run it concurrently with the tree dump so a
-                            // step costs max(tree, shot) instead of tree + shot.
-                            val wantsVision = isVisionActive()
-                            val shotStartMs = System.currentTimeMillis()
-                            val shotDeferred = if (wantsVision) kotlinx.coroutines.GlobalScope.async(kotlinx.coroutines.Dispatchers.Main.immediate) {
-                                service.awaitFrameSettle(maxWaitMs = 3500L, forceFresh = true)
-                            } else null
-                            val snapshot = com.example.agent.Perception.settleAndSnapshot(service, isAppLaunch = normAct == "OPEN_APP")
-                            postActionHierarchy = "[Screen: " + service.resources.displayMetrics.widthPixels + "x" + service.resources.displayMetrics.heightPixels + " raw px; coordinates below use the screenshot-image space " + service.lastModelScreenshotWidth + "x" + service.lastModelScreenshotHeight + " px - emit Bounds/Center values as-is]\n" + snapshot.hierarchy
-                            addReasoningStep("Post-Action Event Settle (${snapshot.settleMs}ms)", "Accessibility event stream quiet after $act.", "RUNNING", "SYSTEM")
-
-                            if (wantsVision) {
-                                addReasoningStep("Capturing Post-Action Viewport", "Taking viewport screenshot after $act...", "RUNNING", "SYSTEM")
-                                base64Img = try { shotDeferred?.await() } catch (e: Exception) { null }
-                                if (base64Img != null) {
-                                    _lastScreenshot.value = base64Img
-                                    _lastHierarchy.value = postActionHierarchy
-                                    addReasoningStep("Viewport snapshot synced", "Successfully captured post-action frame & screen layout hierarchy.", "SUCCESS", "SYSTEM")
-                                } else {
-                                    _lastScreenshot.value = null
-                                    addReasoningStep("Viewport snapshot skipped", "Screenshot callback timed out or unavailable. Relying on layout hierarchy.", "WARNING", "SYSTEM")
-                                }
-                            } else {
-                                _lastHierarchy.value = postActionHierarchy
-                                addReasoningStep("Viewport snapshot skipped (tree-only mode)", "Active model has no vision; using layout hierarchy only. Screenshot capture skipped.", "SUCCESS", "SYSTEM")
-                            }
-                            val shotMs = if (wantsVision) System.currentTimeMillis() - shotStartMs else 0L
-                            addReasoningStep("Step timing", "execute ${actionOutcome.executeMs}ms, settle ${snapshot.settleMs}ms, tree ${snapshot.captureMs}ms, shot ${shotMs}ms", "INFO", "SYSTEM")
-                            com.example.agent.AgentDiagnostics.recordActionStep(
-                                step = _currentStep.value,
-                                action = act,
-                                target = tgt,
-                                success = actionResult.success,
-                                message = actionResult.message,
-                                executeMs = actionOutcome.executeMs,
-                                settleMs = snapshot.settleMs,
-                                captureMs = snapshot.captureMs,
-                                treeSize = snapshot.hierarchy.length,
-                                shotMs = shotMs
-                            )
-                        }
-
-                        // State-diff loop detection & Local Verifier
-                        val preHash = lastHierarchyHash
-                        val currentHash = postActionHierarchy.hashCode()
-                        val currentActionSig = "$act:$tgt"
-
-                        val verifyResult = com.example.service.LocalPostActionVerifier.verify(
-                            service = service,
-                            actionType = act,
-                            target = tgt,
-                            preHierarchyHash = preHash,
-                            postHierarchyHash = currentHash
-                        )
-
-                        var loopNotice = ""
-                        if (verifyResult.status == com.example.service.VerifyStatus.ESCALATE_TO_PLANNER) {
-                            loopNotice = "\n[VERIFIER_ESCALATION_ALERT]: ${verifyResult.message} Do NOT repeat this exact action. Re-evaluate screen layout and select an alternative element or strategy."
-                            addReasoningStep("Local Verifier Escalation", verifyResult.message, "WARNING", "SYSTEM")
-                        } else if (verifyResult.status == com.example.service.VerifyStatus.PASSED) {
-                            addReasoningStep("Local Verifier Passed", verifyResult.message, "SUCCESS", "SYSTEM")
-                        } else {
-                            addReasoningStep("Local Verifier Notice", verifyResult.message, "WARNING", "SYSTEM")
-                        }
-
-                        if (currentHash != 0 && currentHash == lastHierarchyHash && currentActionSig == lastExecutedActionSig) {
-                            sameStateActionCount++
-                            if (sameStateActionCount >= STUCK_ACTION_ABORT_THRESHOLD) {
-                                addReasoningStep("Stuck action abort", "Same action '$act' on '$tgt' repeated $sameStateActionCount times with no screen change. Stopping the turn.", "FAILED", "SYSTEM")
-                                _messages.value += ChatMessage.System("I keep repeating $act on '$tgt' with no effect, so I stopped. Please guide me or rephrase the task.")
-                                loopNotice = "\n[STUCK_ABORT]: This exact action produced no screen change $sameStateActionCount times. The turn is stopping. Do not retry it."
-                                turnAbortRequested = true
-                            } else if (sameStateActionCount >= 2 && loopNotice.isEmpty()) {
-                                loopNotice = "\n[STATE_DIFF_ALERT]: Screen layout did NOT change after executing $act on '$tgt' ($sameStateActionCount times in a row). The element may be unclickable, disabled, or obscured. Do NOT repeat this exact action. Try scrolling, typing, or an alternative element."
-                                addReasoningStep("Loop Detected", "Screen state unchanged after $act on '$tgt' x$sameStateActionCount.", "WARNING", "SYSTEM")
-                            }
-                        } else {
-                            sameStateActionCount = 0
-                        }
-                        lastHierarchyHash = currentHash
-                        lastExecutedActionSig = currentActionSig
-                        
-                        // Prune old images to maintain fast processing speed & lightweight payload
-                        pruneOldImagesFromHistory(1)
-                        
-                        if (base64Img != null) {
-                            if (isVisionActive()) {
-                                responseParts.add(Part(inlineData = com.example.api.InlineData("image/jpeg", base64Img)))
-                            }
-                            runningActionLog.add(act, tgt, actionResult.success)
-                        val recentSteps = runningActionLog.render()
-                        responseParts.add(Part(text = "Updated screen state after executing $act on '$tgt' (Result: ${if (actionResult.success) "Success" else "Failed"})$loopNotice:\nRecent steps so far:\n$recentSteps"))
-                        }
-                        responseParts.add(Part(functionResponse = FunctionResponse(
-                            name = call.name,
-                            response = mapOf(
-                                "status" to if (actionResult.success) "success" else "error",
-                                "message" to (actionResult.message + loopNotice),
-                                "current_screen_hierarchy" to (postActionHierarchy.ifEmpty { _lastHierarchy.value ?: "" })
-                            )
-                        )))
-                        
-                        // Update the message status visually by replacing the last message
-                        val currentMsgs = _messages.value.toMutableList()
-                        val lastIdx = currentMsgs.indexOfLast { it is ChatMessage.TaskExecution && it.action.actionType == act }
-                        if (lastIdx != -1) {
-                            currentMsgs[lastIdx] = ChatMessage.TaskExecution(
-                                AgentAction(act, tgt), 
-                                if (actionResult.success) "Success" else "Failed: ${actionResult.message}"
-                            )
-                            _messages.value = currentMsgs
-                        }
-                        }
-                    }
                 }
             }
             
@@ -3259,53 +2450,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else {
              val modelText = modelTextParts.joinToString("\n")
-             if (modelText.isBlank() && parseRetryCount < 2 && _isProcessing.value) {
-                 parseRetryCount++
-                 com.example.agent.AgentDiagnostics.recordEvent("parse", "empty model response, corrective retry " + parseRetryCount + "/2")
-                 addReasoningStep("Parse retry", "Model returned no action and no text. Asking for a valid response (attempt " + parseRetryCount + "/2).", "WARNING", "SYSTEM")
-                 conversationHistory.add(Content(
-                     role = "user",
-                     parts = mutableListOf<Part>().apply {
-                         add(Part(text = "[PARSE_RETRY]: Your previous response contained no action or text. Emit exactly one computer_use_action tool call, or a report_task_status call, or a plain-text answer for the user."))
-                     }
-                 ))
-                 _agentState.value = AgentState.THINKING
-                 executeGeminiCall()
-                 return
-             }
-             val isTaskDoneText = modelText.contains("เสร็จสิ้น") || modelText.contains("เรียบร้อยแล้ว") || modelText.contains("สำเร็จ") || modelText.contains("ครบถ้วน") || modelText.contains("completed") || modelText.contains("finished") || modelText.contains("DONE")
-             val lastAction = _actionHistory.value.lastOrNull()
+             stopInactivityWatchdog()
+             _isProcessing.value = false
+             _agentState.value = AgentState.IDLE
+             _activeAction.value = null
 
-             if (actionsExecutedInCurrentTurn > 0 && lastAction != null && !isTaskDoneText && autoContinueCount < 3) {
-                 autoContinueCount++
-                 addReasoningStep("Auto-Continue Guard Active", "Checking task completion progress ($autoContinueCount/3)...", "RUNNING", "SYSTEM")
-
-                 appScope.launch {
-                     kotlinx.coroutines.delay(1200L)
-                     if (touchPauseRequested || !_isProcessing.value) return@launch
-                     val service = com.example.service.ZhypixAccessibilityService.instance
-                     val currentH = service?.getActiveWindowHierarchy() ?: _lastHierarchy.value ?: ""
-
-                     val autoContinueMsg = Content(
-                         role = "user",
-                         parts = mutableListOf<Part>().apply {
-                             add(Part(text = "[AUTO_CONTINUOUS_TASK_GUARD]: Your previous action was completed, but the user's task may still be in progress.\nLatest Screen Layout Hierarchy:\n$currentH\n\nDirectives: If the user's goal is NOT fully completed, emit the NEXT tool call immediately. Only if the goal is completely finished, state 'The task has been completed successfully.'."))
-                         }
-                     )
-                     conversationHistory.add(autoContinueMsg)
-                     _agentState.value = AgentState.THINKING
-                     executeGeminiCall()
-                 }
-             } else {
-                 autoContinueCount = 0
-                 // Turn finished
-                 addReasoningStep("Agent Task Sequence Resolved", "Finished processing all instructions. Standby mode activated.", "SUCCESS", "SYSTEM")
-                          stopInactivityWatchdog()
-                 wasWaitingForScreenLoad = false
-                 _isProcessing.value = false
-                 _agentState.value = AgentState.IDLE
-                 _activeAction.value = null
-             }
         }
     }
 
@@ -3389,174 +2538,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e("Zhypix", "Summarization failed", e)
             }
-        }
-    }
-
-    private suspend fun executeAndroidIntent(
-        action: String,
-        dataUri: String?,
-        mimeType: String?,
-        packageName: String?,
-        extras: Map<String, Any>?
-    ): Pair<Boolean, String> {
-        val context = getApplication<android.app.Application>()
-        val upperAction = action.uppercase()
-
-        // 1. System Action: FLASHLIGHT / TORCH
-        if (upperAction.contains("FLASHLIGHT") || upperAction.contains("TORCH")) {
-            try {
-                val cameraManager = context.getSystemService(android.content.Context.CAMERA_SERVICE) as android.hardware.camera2.CameraManager
-                val cameraId = cameraManager.cameraIdList.firstOrNull()
-                if (cameraId != null) {
-                    val turnOn = upperAction.contains("ON") || (upperAction.contains("TOGGLE") && !isFlashlightOn)
-                    cameraManager.setTorchMode(cameraId, turnOn)
-                    isFlashlightOn = turnOn
-                    return Pair(true, "Flashlight turned ${if (turnOn) "ON" else "OFF"}")
-                }
-            } catch (e: Exception) {
-                return Pair(false, "Flashlight control error: ${e.message}")
-            }
-        }
-
-        // 2. System Action: VOLUME CONTROL
-        if (upperAction.contains("VOLUME") || upperAction.contains("MUTE")) {
-            try {
-                val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-                return if (upperAction.contains("UNMUTE")) {
-                    // Check UNMUTE before MUTE: "UNMUTE" also contains "MUTE".
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Unmuted media volume")
-                } else if (upperAction.contains("UP")) {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Increased media volume")
-                } else if (upperAction.contains("DOWN")) {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_LOWER, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Decreased media volume")
-                } else if (upperAction.contains("MUTE")) {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_MUTE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Muted media volume")
-                } else {
-                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, android.media.AudioManager.FLAG_SHOW_UI)
-                    Pair(true, "Unmuted media volume")
-                }
-            } catch (e: Exception) {
-                return Pair(false, "Volume adjustment error: ${e.message}")
-            }
-        }
-
-        // 3. System Action: OPEN_APP / LAUNCH_APP
-        if (upperAction == "OPEN_APP" || upperAction == "LAUNCH_APP" || (!packageName.isNullOrBlank() && action.isBlank())) {
-            val appTarget = packageName ?: dataUri ?: action
-            val service = com.example.service.ZhypixAccessibilityService.instance
-            val actionRes = com.example.service.GestureMapper.executeAction(service, "OPEN_APP", appTarget, context)
-            if (actionRes.success) {
-                return Pair(true, actionRes.message)
-            }
-        }
-
-        // 4. Resolve Action Names & Settings Aliases
-        var effectiveDataUri = dataUri
-        var effectivePackageName = packageName
-
-        // Special handling for Web Search / Media Queries
-        val resolvedAction = when {
-            upperAction == "YOUTUBE_SEARCH" || upperAction == "SEARCH_YOUTUBE" || upperAction == "PLAY_YOUTUBE" -> {
-                val query = extras?.get("query")?.toString() ?: dataUri ?: ""
-                val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-                effectiveDataUri = "https://www.youtube.com/results?search_query=$encodedQuery"
-                effectivePackageName = packageName ?: "com.google.android.youtube"
-                android.content.Intent.ACTION_VIEW
-            }
-            upperAction == "SPOTIFY_SEARCH" || upperAction == "SEARCH_SPOTIFY" || upperAction == "PLAY_SPOTIFY" -> {
-                val query = extras?.get("query")?.toString() ?: dataUri ?: ""
-                val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-                effectiveDataUri = "spotify:search:$encodedQuery"
-                effectivePackageName = packageName ?: "com.spotify.music"
-                android.content.Intent.ACTION_VIEW
-            }
-            upperAction == "NAVIGATE" || upperAction == "MAPS" || upperAction == "DIRECTIONS" -> {
-                val dest = extras?.get("query")?.toString() ?: dataUri ?: ""
-                effectiveDataUri = "google.navigation:q=${java.net.URLEncoder.encode(dest, "UTF-8")}"
-                android.content.Intent.ACTION_VIEW
-            }
-            upperAction == "WEB_SEARCH" || upperAction == "GOOGLE_SEARCH" -> {
-                android.content.Intent.ACTION_WEB_SEARCH
-            }
-            upperAction.contains("SET_ALARM") || upperAction.contains("ALARM_CLOCK") -> android.provider.AlarmClock.ACTION_SET_ALARM
-            upperAction.contains("SET_TIMER") -> android.provider.AlarmClock.ACTION_SET_TIMER
-            upperAction == "WIFI_SETTINGS" -> android.provider.Settings.ACTION_WIFI_SETTINGS
-            upperAction == "BLUETOOTH_SETTINGS" -> android.provider.Settings.ACTION_BLUETOOTH_SETTINGS
-            upperAction == "ACCESSIBILITY_SETTINGS" -> android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS
-            upperAction == "DISPLAY_SETTINGS" -> android.provider.Settings.ACTION_DISPLAY_SETTINGS
-            upperAction == "SOUND_SETTINGS" -> android.provider.Settings.ACTION_SOUND_SETTINGS
-            upperAction == "SETTINGS" -> android.provider.Settings.ACTION_SETTINGS
-            else -> action
-        }
-
-        return try {
-            val intent = android.content.Intent(resolvedAction).apply {
-                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                if (!effectivePackageName.isNullOrBlank()) {
-                    setPackage(effectivePackageName)
-                }
-                if (!effectiveDataUri.isNullOrBlank()) {
-                    val parsedUri = android.net.Uri.parse(effectiveDataUri)
-                    if (!mimeType.isNullOrBlank()) {
-                        setDataAndType(parsedUri, mimeType)
-                    } else {
-                        setData(parsedUri)
-                    }
-                } else if (!mimeType.isNullOrBlank()) {
-                    type = mimeType
-                }
-
-                extras?.forEach { (key, value) ->
-                    val normKey = when (key.lowercase()) {
-                        "hour", "extra_hour" -> android.provider.AlarmClock.EXTRA_HOUR
-                        "minutes", "extra_minutes" -> android.provider.AlarmClock.EXTRA_MINUTES
-                        "message", "extra_message" -> android.provider.AlarmClock.EXTRA_MESSAGE
-                        "skip_ui", "extra_skip_ui" -> android.provider.AlarmClock.EXTRA_SKIP_UI
-                        "length", "extra_length" -> android.provider.AlarmClock.EXTRA_LENGTH
-                        else -> key
-                    }
-
-                    when (value) {
-                        is Double -> putExtra(normKey, value.toInt())
-                        is Float -> putExtra(normKey, value.toInt())
-                        is Int -> putExtra(normKey, value)
-                        is Long -> putExtra(normKey, value)
-                        is Boolean -> putExtra(normKey, value)
-                        is String -> {
-                            val intVal = value.toIntOrNull()
-                            val boolVal = value.toBooleanStrictOrNull()
-                            if (intVal != null) putExtra(normKey, intVal)
-                            else if (boolVal != null) putExtra(normKey, boolVal)
-                            else putExtra(normKey, value)
-                        }
-                        is List<*> -> {
-                            if (value.isNotEmpty()) {
-                                val first = value.first()
-                                when (first) {
-                                    is Int -> putIntegerArrayListExtra(normKey, ArrayList(value.filterIsInstance<Int>()))
-                                    is Double -> {
-                                        // Mixed-type lists must not crash: coerce only numeric entries.
-                                        val intList = value.mapNotNull { (it as? Number)?.toInt() }
-                                        putIntegerArrayListExtra(normKey, ArrayList(intList))
-                                    }
-                                    is String -> putStringArrayListExtra(normKey, ArrayList(value.filterIsInstance<String>()))
-                                    else -> putStringArrayListExtra(normKey, ArrayList(value.map { it.toString() }))
-                                }
-                            }
-                        }
-                        else -> putExtra(normKey, value.toString())
-                    }
-                }
-            }
-            context.startActivity(intent)
-            Pair(true, "Successfully executed system action: $resolvedAction")
-        } catch (e: Exception) {
-            Log.w("AgentViewModel", "Intent failed: ${e.message}")
-            Pair(false, "Intent execution failed ($resolvedAction): ${e.localizedMessage}")
         }
     }
 
