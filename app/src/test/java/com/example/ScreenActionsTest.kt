@@ -45,14 +45,14 @@ class ScreenActionsTest {
     fun dragAndDragAndDrop() {
         val d = ok("""drag({"start_x":1,"start_y":2,"end_x":3,"end_y":4,"duration_ms":860})""")
         assertEquals(ScreenAction.Drag(1, 2, 3, 4, 860L), d)
-        val dd = ok("""drag_and_drop({"from_x":5,"from_y":6,"to_x":7,"to_y":8})""")
+        val dd = ok("""drag_and_drop({"start_x":5,"start_y":6,"end_x":7,"end_y":8})""")
         assertEquals(ScreenAction.DragAndDrop(5, 6, 7, 8), dd)
     }
 
     @Test
     fun typeWaitNavAndStartApp() {
         assertEquals(ScreenAction.Type("hello world"), ok("""type({"text":"hello world"})"""))
-        assertEquals(ScreenAction.Wait(1500L), ok("""wait({"duration_ms":1500})"""))
+        assertEquals(ScreenAction.Wait(1500L), ok("""wait({"seconds":1.5})"""))
         assertEquals(ScreenAction.PressBack, ok("press_back()"))
         assertEquals(ScreenAction.PressHome, ok("""press_home({})"""))
         assertEquals(ScreenAction.StartApp("com.android.settings"), ok("""start_app({"package_name":"com.android.settings"})"""))
@@ -60,7 +60,7 @@ class ScreenActionsTest {
 
     @Test
     fun walkthroughCarriesSteps() {
-        val w = ok("""walkthrough({"steps":"1. Open Settings\n2. Tap Wi-Fi"})""")
+        val w = ok("""walkthrough({"content":"1. Open Settings\n2. Tap Wi-Fi"})""")
         assertTrue(w is ScreenAction.Walkthrough)
         assertTrue((w as ScreenAction.Walkthrough).steps.contains("Wi-Fi"))
     }
@@ -70,9 +70,9 @@ class ScreenActionsTest {
         assertEquals(ScreenAction.Finished("done"), ok("""finished({"message":"done"})"""))
         assertEquals(ScreenAction.FailedToCompleteTask("no button"), ok("""failed_to_complete_task({"reason":"no button"})"""))
         assertEquals(ScreenAction.MessageUser("hi"), ok("""message_user({"message":"hi"})"""))
-        assertEquals(ScreenAction.NeedsConfirmation("send it?"), ok("""needs_confirmation({"message":"send it?"})"""))
-        assertEquals(ScreenAction.NeedLogin("sign in"), ok("""need_login({"message":"sign in"})"""))
-        assertEquals(ScreenAction.NeedLoginDetails("creds"), ok("""need_login_details({"message":"creds"})"""))
+        assertEquals(ScreenAction.NeedsConfirmation("send it?"), ok("""needs_confirmation({"question":"send it?"})"""))
+        assertEquals(ScreenAction.NeedLogin("sign in"), ok("""need_login({"content":"sign in"})"""))
+        assertEquals(ScreenAction.NeedLoginDetails("creds"), ok("""need_login_details({"content":"creds"})"""))
         assertEquals(ScreenAction.EncounteredCaptcha("captcha"), ok("""encountered_captcha({"message":"captcha"})"""))
     }
 

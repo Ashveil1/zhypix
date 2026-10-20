@@ -15,7 +15,7 @@ import org.json.JSONObject
  */
 sealed class ScreenAction {
 
-    /** Tap at raw screen coordinates. */
+    /** Tap at raw screen coordinates. Both raw and image sizes are supplied to the model. */
     data class Click(val x: Int, val y: Int) : ScreenAction()
 
     /** Two taps at the same point, short gap. */
@@ -136,22 +136,22 @@ object ActionParser {
                 )
                 "drag_and_drop" -> ActionParseResult.Ok(
                     ScreenAction.DragAndDrop(
-                        reqInt(args, "from_x"), reqInt(args, "from_y"),
-                        reqInt(args, "to_x"), reqInt(args, "to_y")
+                        reqInt(args, "start_x"), reqInt(args, "start_y"),
+                        reqInt(args, "end_x"), reqInt(args, "end_y")
                     )
                 )
                 "type" -> ActionParseResult.Ok(ScreenAction.Type(reqString(args, "text")))
-                "wait" -> ActionParseResult.Ok(ScreenAction.Wait(reqLong(args, "duration_ms")))
+                "wait" -> ActionParseResult.Ok(ScreenAction.Wait((reqDouble(args, "seconds") * 1000).toLong().also { require(it in 0..60000) { "seconds outside 0..60" } }))
                 "press_back" -> ActionParseResult.Ok(ScreenAction.PressBack)
                 "press_home" -> ActionParseResult.Ok(ScreenAction.PressHome)
                 "start_app" -> ActionParseResult.Ok(ScreenAction.StartApp(reqString(args, "package_name")))
-                "walkthrough" -> ActionParseResult.Ok(ScreenAction.Walkthrough(reqString(args, "steps")))
+                "walkthrough" -> ActionParseResult.Ok(ScreenAction.Walkthrough(reqString(args, "content")))
                 "finished" -> ActionParseResult.Ok(ScreenAction.Finished(optMessage(args)))
                 "failed_to_complete_task" -> ActionParseResult.Ok(ScreenAction.FailedToCompleteTask(optMessage(args)))
                 "message_user" -> ActionParseResult.Ok(ScreenAction.MessageUser(optMessage(args)))
-                "needs_confirmation" -> ActionParseResult.Ok(ScreenAction.NeedsConfirmation(optMessage(args)))
-                "need_login" -> ActionParseResult.Ok(ScreenAction.NeedLogin(optMessage(args)))
-                "need_login_details" -> ActionParseResult.Ok(ScreenAction.NeedLoginDetails(optMessage(args)))
+                "needs_confirmation" -> ActionParseResult.Ok(ScreenAction.NeedsConfirmation(reqString(args, "question")))
+                "need_login" -> ActionParseResult.Ok(ScreenAction.NeedLogin(reqString(args, "content")))
+                "need_login_details" -> ActionParseResult.Ok(ScreenAction.NeedLoginDetails(reqString(args, "content")))
                 "encountered_captcha" -> ActionParseResult.Ok(ScreenAction.EncounteredCaptcha(optMessage(args)))
                 else -> ActionParseResult.Invalid("unknown action: $name")
             }
@@ -163,36 +163,26 @@ object ActionParser {
     private fun optMessage(args: JSONObject): String =
         if (args.has("message")) args.optString("message") else args.optString("reason", "")
 
-    private fun reqInt(args: JSONObject, key: String): Int {
-        if (!args.has(key)) throw IllegalArgumentException("missing '$key'")
-        val v = args.get(key)
-        return when (v) {
-            is Number -> v.toInt()
-            is String -> v.trim().toDoubleOrNull()?.toInt()
-                ?: throw IllegalArgumentException("'$key' is not a number: $v")
-            else -> throw IllegalArgumentException("'$key' is not a number")
-        }
+    private fun reqDouble(args: JSONObject, key: String): Double {
+        require(args.has(key) && !args.isNull(key)) { "missing '$key'" }
+        val value = args.get(key)
+        require(value is Number || value is String) { "'$key' must be numeric" }
+        return value.toString().toDoubleOrNull()?.also {
+            require(it.isFinite()) { "'$key' must be finite" }
+        } ?: throw IllegalArgumentException("'$key' must be numeric")
     }
 
-    private fun reqLong(args: JSONObject, key: String): Long {
-        if (!args.has(key)) throw IllegalArgumentException("missing '$key'")
-        val v = args.get(key)
-        return when (v) {
-            is Number -> v.toLong()
-            is String -> v.trim().toDoubleOrNull()?.toLong()
-                ?: throw IllegalArgumentException("'$key' is not a number: $v")
-            else -> throw IllegalArgumentException("'$key' is not a number")
-        }
+    private fun reqInt(args: JSONObject, key: String): Int {
+        val value = reqDouble(args, key)
+        require(value >= 0 && value <= Int.MAX_VALUE) { "'$key' outside coordinate range" }
+        return value.toInt()
     }
 
     private fun optLong(args: JSONObject, key: String): Long? {
-        if (!args.has(key) || args.isNull(key)) return null
-        val v = args.get(key)
-        return when (v) {
-            is Number -> v.toLong()
-            is String -> v.trim().toDoubleOrNull()?.toLong()
-            else -> null
-        }
+        if (!args.has(key)) return null
+        val value = reqDouble(args, key)
+        require(value in 1.0..60000.0) { "'$key' outside duration range" }
+        return value.toLong()
     }
 
     private fun reqString(args: JSONObject, key: String): String {
