@@ -268,6 +268,65 @@ class ZhypixAccessibilityService : AccessibilityService() {
         return res
     }
 
+    /** Pixel size of the last screenshot handed to the model (0 = none yet). */
+    @Volatile var lastModelScreenshotWidth: Int = 0
+    @Volatile var lastModelScreenshotHeight: Int = 0
+
+    /**
+     * Models sometimes answer with coordinates read from the scaled screenshot
+     * instead of the raw hierarchy pixels. When a point clearly falls inside
+     * screenshot space while the screen is larger, rescale it - unless a real
+     * clickable element sits near the raw point, which means the model used
+     * hierarchy coordinates after all.
+     */
+    fun mapScreenshotSpaceToScreen(x: Float, y: Float): Pair<Float, Float> {
+        val shotW = lastModelScreenshotWidth
+        val shotH = lastModelScreenshotHeight
+        if (shotW <= 0 || shotH <= 0) return Pair(x, y)
+        if (x > shotW + 24f || y > shotH + 24f) return Pair(x, y)
+        val dm = resources.displayMetrics
+        val scrW = dm.widthPixels.toFloat()
+        val scrH = dm.heightPixels.toFloat()
+        if (scrW <= shotW * 1.1f && scrH <= shotH * 1.1f) return Pair(x, y)
+        if (hasClickableNodeCenterNear(x, y, 96f)) return Pair(x, y)
+        val sx = x * scrW / shotW
+        val sy = y * scrH / shotH
+        Log.w("Zhypix", "Rescaled screenshot-space coordinate ($x,$y) -> ($sx,$sy); shot=${shotW}x${shotH} screen=${scrW}x${scrH}")
+        com.example.agent.AgentDiagnostics.recordEvent("action", "rescaled screenshot-space coords ($x,$y) -> ($sx,$sy); shot=${shotW}x${shotH} screen=${scrW}x${scrH}")
+        return Pair(sx, sy)
+    }
+
+    private fun hasClickableNodeCenterNear(x: Float, y: Float, radiusPx: Float): Boolean {
+        val root = try { rootInActiveWindow } catch (e: Exception) { null } ?: return false
+        val found = try { clickableCenterNearRec(root, x, y, radiusPx, 0) } catch (e: Exception) { false }
+        try { root.recycle() } catch (e: Exception) {}
+        return found
+    }
+
+    private fun clickableCenterNearRec(node: AccessibilityNodeInfo?, x: Float, y: Float, radiusPx: Float, depth: Int): Boolean {
+        if (node == null || depth > 20) return false
+        try {
+            if (node.isClickable && node.isVisibleToUser) {
+                val r = Rect()
+                node.getBoundsInScreen(r)
+                if (r.width() > 0 && r.height() > 0) {
+                    val dx = r.centerX() - x
+                    val dy = r.centerY() - y
+                    if (dx * dx + dy * dy <= radiusPx * radiusPx) return true
+                }
+            }
+        } catch (e: Exception) {}
+        for (i in 0 until node.childCount) {
+            val child = try { node.getChild(i) } catch (e: Exception) { null }
+            if (child != null) {
+                val hit = clickableCenterNearRec(child, x, y, radiusPx, depth + 1)
+                try { child.recycle() } catch (e: Exception) {}
+                if (hit) return true
+            }
+        }
+        return false
+    }
+
     private suspend fun dispatchGestureAndAwait(builder: GestureDescription.Builder, feedbackX: Float, feedbackY: Float): Boolean {
         val deferred = kotlinx.coroutines.CompletableDeferred<Boolean>()
         android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -806,8 +865,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
 
         // Fallback for raw coordinate tap if no node was hit
         if (selector.x != null && selector.y != null) {
-            val fx = selector.x.toFloat()
-            val fy = selector.y.toFloat()
+            val (fx, fy) = mapScreenshotSpaceToScreen(selector.x.toFloat(), selector.y.toFloat())
             val talkBack = mode != SmartGesture.LONG_PRESS && isTouchExplorationActive()
             val ok = when {
                 talkBack -> dispatchTalkBackActivate(fx, fy)
@@ -1146,6 +1204,8 @@ class ZhypixAccessibilityService : AccessibilityService() {
                                                 softwareBitmap.recycle()
                                                 
                                                 // Cache the new screenshot & hash
+                                                lastModelScreenshotWidth = targetWidth
+                                                lastModelScreenshotHeight = targetHeight
                                                 lastScreenshotBase64 = base64
                                                 lastScreenshotTime = System.currentTimeMillis()
                                                 lastDHash = dHash
