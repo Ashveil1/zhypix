@@ -40,6 +40,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
         /** Hard cap of executed actions per user turn - runaway-loop guard. */
         private const val MAX_ACTIONS_PER_TURN = 30
+        private const val MAX_STEPS_PER_TASK = 150
         /** Consecutive no-state-change repeats of the same action before a hard stop. */
         private const val STUCK_ACTION_ABORT_THRESHOLD = 4
     }
@@ -208,6 +209,15 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     private var actionsExecutedInCurrentTurn = 0
     private var turnAbortRequested = false
 
+    // Task-level step counter (exposed so the UI can show "Step N/150") and
+    // terminal status reported by the agent via report_task_status.
+    private val _currentStep = MutableStateFlow(0)
+    val currentStep = _currentStep.asStateFlow()
+    private val _maxStepsPerTask = MutableStateFlow(MAX_STEPS_PER_TASK)
+    val maxStepsPerTask = _maxStepsPerTask.asStateFlow()
+    var pendingTerminalStatus: String? = null
+    var pendingTerminalMessage: String = ""
+
     private var lastActionTime: Long = System.currentTimeMillis()
     private var watchdogJob: kotlinx.coroutines.Job? = null
     var isExecutingWaitAction: Boolean = false
@@ -215,6 +225,12 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     fun recordActionExecuted() {
         lastActionTime = System.currentTimeMillis()
         actionsExecutedInCurrentTurn++
+        _currentStep.value++
+        if (_currentStep.value >= MAX_STEPS_PER_TASK) {
+            pendingTerminalStatus = "max_steps"
+            pendingTerminalMessage = "Stopped after $MAX_STEPS_PER_TASK steps in one task - the agent may be looping. Tell me what to adjust and I can continue."
+            turnAbortRequested = true
+        }
     }
 
     fun startInactivityWatchdog() {
@@ -1196,6 +1212,21 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         mapOf(
             "functionDeclarations" to listOf(
                 mapOf(
+                    "name" to "report_task_status",
+                    "description" to "Report the terminal status of the current task and end the session. Use 'finished' when the task is done, 'failed' when it cannot be completed, 'message_user' or 'needs_confirmation' when you need the user's reply, 'need_login' when a login wall blocks the task, and 'encountered_captcha' when a captcha blocks progress.",
+                    "parameters" to mapOf(
+                        "type" to "OBJECT",
+                        "properties" to mapOf(
+                            "status" to mapOf(
+                                "type" to "STRING",
+                                "description" to "One of: finished, failed, message_user, needs_confirmation, need_login, encountered_captcha"
+                            ),
+                            "message" to mapOf("type" to "STRING", "description" to "Short message shown to the user.")
+                        ),
+                        "required" to listOf("status")
+                    )
+                ),
+                mapOf(
                     "name" to "remember_preference",
                     "description" to "Remember a user preference or fact like their favorite color, schedule, etc.",
                     "parameters" to mapOf(
@@ -1215,7 +1246,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         "properties" to mapOf(
                             "action_type" to mapOf(
                                 "type" to "STRING",
-                                "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, OBSERVE, TYPE, OPEN_APP, BACK, HOME"
+                                "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, DRAG_AND_DROP, OBSERVE, TYPE, OPEN_APP, BACK, HOME"
                             ),
                             "target" to mapOf(
                                 "type" to "STRING",
@@ -1437,6 +1468,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         autoContinueCount = 0
         fallbackRetryCount = 0
         actionsExecutedInCurrentTurn = 0
+        _currentStep.value = 0
         startInactivityWatchdog()
 
         clearReasoningChain()
@@ -1641,6 +1673,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                          * `SWIPE`: Direction `target = "UP"`, `"DOWN"`, `"LEFT"`, `"RIGHT"`.
                          * `DOUBLE_CLICK`: Same target formats as CLICK. Use for zoom toggles or double-tap-to-select UIs.
                          * `LONG_PRESS`: Same target formats as CLICK. Use to open context menus, select text, or start drags.
+                         * `DRAG_AND_DROP`: `target = "x1,y1 -> x2,y2"` (long-press at the start point, drag, release).
                          * `TYPE`: `target = "text to type"` (Inputs text into focused field).
                          * `GLOBAL_ACTION` / `BACK` / `HOME`: `target = "BACK"` or `target = "HOME"`.
                          * `OPEN_APP`: `target = "App Name"` (e.g. "YouTube", "LINE", "Chrome", "Settings").
@@ -1656,7 +1689,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                        - WHAT IT IS: Search DuckDuckGo or fetch and read full webpage content in Markdown.
                        - WHEN TO USE: When the user asks for current real-time online information, news, live weather, or web documentation.
                     """ else ""}
-                    4. `remember_preference` (LOCAL MEMORY STORE):
+                    4. `report_task_status` (TASK TERMINAL STATUS):
+                       - Call this INSTEAD of plain text when the task reaches a terminal state: 'finished' when fully done, 'failed' when it cannot be completed, 'message_user' or 'needs_confirmation' when you need the user's reply, 'need_login' when a login screen blocks progress, 'encountered_captcha' when a captcha blocks progress.
+                       - Always include a short `message` for the user.
+
+                    5. `remember_preference` (LOCAL MEMORY STORE):
                        - WHAT IT IS: Stores key user preferences and facts permanently.
                        - WHEN TO USE: When learning a new fact about the user.
 
@@ -1989,6 +2026,21 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         mapOf(
                             "type" to "function",
                             "function" to mapOf(
+                                "name" to "report_task_status",
+                                "description" to "Report the terminal status of the current task and end the session. Use 'finished' when done, 'failed' when impossible, 'message_user' or 'needs_confirmation' when you need the user's reply, 'need_login' when blocked by a login, 'encountered_captcha' when blocked by a captcha.",
+                                "parameters" to mapOf(
+                                    "type" to "object",
+                                    "properties" to mapOf(
+                                        "status" to mapOf("type" to "string", "description" to "One of: finished, failed, message_user, needs_confirmation, need_login, encountered_captcha"),
+                                        "message" to mapOf("type" to "string", "description" to "Short message shown to the user.")
+                                    ),
+                                    "required" to listOf("status")
+                                )
+                            )
+                        ),
+                        mapOf(
+                            "type" to "function",
+                            "function" to mapOf(
                                 "name" to "remember_preference",
                                 "description" to "Remember a user preference or fact like their favorite color, schedule, etc.",
                                 "parameters" to mapOf(
@@ -2011,7 +2063,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                     "properties" to mapOf(
                                         "action_type" to mapOf(
                                             "type" to "string",
-                                            "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, TYPE, OPEN_APP, GLOBAL_ACTION, BACK, HOME, OBSERVE, WAIT"
+                                            "description" to "Must be one of: CLICK, SWIPE, DOUBLE_CLICK, LONG_PRESS, DRAG_AND_DROP, TYPE, OPEN_APP, GLOBAL_ACTION, BACK, HOME, OBSERVE, WAIT"
                                         ),
                                         "target" to mapOf(
                                             "type" to "string",
@@ -2457,6 +2509,20 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 when (call.name) {
+                    "report_task_status" -> {
+                        val status = ((call.args?.get("status") as? String) ?: "finished").lowercase().trim()
+                        val message = (call.args?.get("message") as? String) ?: ""
+                        pendingTerminalStatus = status
+                        pendingTerminalMessage = message
+                        addReasoningStep("Terminal status reported", "status=$status: $message", "WARNING", "SYSTEM")
+                        responseParts.add(Part(functionResponse = FunctionResponse(
+                            name = call.name,
+                            response = mapOf(
+                                "status" to "acknowledged",
+                                "message" to "Terminal status '$status' recorded. The session is ending now; do not emit further actions."
+                            )
+                        )))
+                    }
                     "remember_preference" -> {
                         val k = call.args?.get("key") as? String ?: ""
                         val v = call.args?.get("value") as? String ?: ""
@@ -3066,15 +3132,31 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 ))
             }
 
-            if (touchPauseRequested || pendingSensitiveActionDesc != null || turnAbortRequested) {
+            if (touchPauseRequested || pendingSensitiveActionDesc != null || turnAbortRequested || pendingTerminalStatus != null) {
                 val wasAbort = turnAbortRequested
+                val terminalStatus = pendingTerminalStatus
+                val terminalMessage = pendingTerminalMessage
                 turnAbortRequested = false
                 touchPauseRequested = false
+                pendingTerminalStatus = null
+                pendingTerminalMessage = ""
                 _isProcessing.value = false
                 _agentState.value = AgentState.IDLE
                 _activeAction.value = null
                         stopInactivityWatchdog()
+                if (terminalStatus != null) {
+                    val userNote = when (terminalStatus) {
+                        "finished" -> if (terminalMessage.isNotBlank()) terminalMessage else "Task finished."
+                        "failed", "failed_to_complete_task" -> if (terminalMessage.isNotBlank()) "I couldn't complete this: $terminalMessage" else "I couldn't complete this task."
+                        "need_login" -> if (terminalMessage.isNotBlank()) "Please log in: $terminalMessage. Tell me when done and I'll continue." else "Please log in to the app on screen, then tell me to continue."
+                        "encountered_captcha" -> "A captcha is on screen - please solve it, then tell me to continue."
+                        "max_steps" -> terminalMessage
+                        else -> if (terminalMessage.isNotBlank()) terminalMessage + "\nReply and I'll continue." else "I need your input to continue."
+                    }
+                    _messages.value += ChatMessage.System(userNote)
+                }
                 val pauseReason = when {
+                    terminalStatus != null -> "Terminal state reached: $terminalStatus."
                     wasAbort -> "Stopped by a safety guard (action limit or stuck detection). Say anything to continue."
                     pendingSensitiveActionDesc != null -> "Waiting for your confirmation of a sensitive action."
                     else -> "Paused because the user touched the screen. Say anything to continue."
