@@ -184,11 +184,18 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
 
 
-    private val _screenshotQuality = MutableStateFlow(60)
+    private val _screenshotQuality = MutableStateFlow(75)
     val screenshotQuality = _screenshotQuality.asStateFlow()
 
     private val _screenshotScale = MutableStateFlow(0.5f)
     val screenshotScale = _screenshotScale.asStateFlow()
+
+    // Optional cap on the screenshot's long side in pixels (0 = off). Keeps
+    // images near the model's sweet spot regardless of device resolution.
+    private val _screenshotMaxLongSide = MutableStateFlow(780)
+    val screenshotMaxLongSide = _screenshotMaxLongSide.asStateFlow()
+
+    private var installedAppsCache: String? = null
 
     private val _selectedPersona = MutableStateFlow("DEFAULT") // "DEFAULT", "FRIENDLY", "CONCISE", "TUTOR", "CUSTOM"
     val selectedPersona = _selectedPersona.asStateFlow()
@@ -217,6 +224,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     val maxStepsPerTask = _maxStepsPerTask.asStateFlow()
     var pendingTerminalStatus: String? = null
     var pendingTerminalMessage: String = ""
+    private var parseRetryCount = 0
 
     private var lastActionTime: Long = System.currentTimeMillis()
     private var watchdogJob: kotlinx.coroutines.Job? = null
@@ -384,6 +392,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
+        com.example.agent.AgentDiagnostics.init(getApplication())
         // Load initial settings
         viewModelScope.launch {
             userPreferences.collect { prefs ->
@@ -475,6 +484,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
 
+
+                val maxLongSidePref = prefs.find { it.key == "cfg_screenshotMaxLongSide" }?.value
+                if (maxLongSidePref != null) {
+                    _screenshotMaxLongSide.value = maxLongSidePref.toIntOrNull() ?: 780
+                }
 
                 val qualityPref = prefs.find { it.key == "cfg_screenshotQuality" }?.value
                 if (qualityPref != null) {
@@ -687,7 +701,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             }
             "webSearch" -> _webSearchEnabled.value = true
             "visionMode" -> _visionMode.value = value
-            "screenshotQuality" -> _screenshotQuality.value = value.toIntOrNull() ?: 60
+            "screenshotQuality" -> _screenshotQuality.value = value.toIntOrNull() ?: 75
+            "screenshotMaxLongSide" -> _screenshotMaxLongSide.value = value.toIntOrNull() ?: 780
             "screenshotScale" -> _screenshotScale.value = value.toFloatOrNull() ?: 0.5f
         }
         if (_autoSaveSettings.value) {
@@ -1469,6 +1484,9 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         fallbackRetryCount = 0
         actionsExecutedInCurrentTurn = 0
         _currentStep.value = 0
+        parseRetryCount = 0
+        installedAppsCache = null
+        com.example.agent.AgentDiagnostics.recordEvent("backend", "task started: " + text.take(120))
         startInactivityWatchdog()
 
         clearReasoningChain()
@@ -1574,6 +1592,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 val prefsStr = getRelevantMemoriesString(latestUserQuery)
 
                 val hierarchyText = _lastHierarchy.value ?: "No hierarchy captured yet. Please perform open_app or take a screenshot."
+                val installedAppsText = getInstalledAppsSummary()
                 val currentDateStr = java.text.SimpleDateFormat("EEEE, d MMMM yyyy", java.util.Locale.ENGLISH).format(java.util.Date())
                 val sysText = """
                     You are Zhypix, an intelligent AI Assistant with a built-in real Linux PRoot Terminal sandbox, physical screen automation, persistent long-term memory, and web search capabilities.
@@ -1586,6 +1605,14 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     The following facts and user preferences are saved across all sessions:
                     $prefsStr
                     - Note: Use `remember_preference` whenever the user shares personal details, preferences, schedules, or facts to save to long-term memory.
+
+                    ${if (installedAppsText.isNotBlank()) """
+                    ========================================
+                    === INSTALLED APPS ON THIS DEVICE ===
+                    ========================================
+                    $installedAppsText
+                    Use exact app labels or package names from this list for OPEN_APP targets.
+                    """ else ""}
                     
                     ${if (_ultraConciseMode.value) """
                     ========================================
@@ -2514,6 +2541,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         val message = (call.args?.get("message") as? String) ?: ""
                         pendingTerminalStatus = status
                         pendingTerminalMessage = message
+                        com.example.agent.AgentDiagnostics.recordEvent("terminal", "status=$status message=$message")
                         addReasoningStep("Terminal status reported", "status=$status: $message", "WARNING", "SYSTEM")
                         responseParts.add(Part(functionResponse = FunctionResponse(
                             name = call.name,
@@ -2973,6 +3001,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         // Non-gesture actions and terminal/blocked outcomes are never retried.
                         val retryableGestureActions = setOf("CLICK", "TAP", "DOUBLE_CLICK", "DOUBLE_TAP", "LONG_PRESS", "LONG_CLICK", "PRESS_AND_HOLD", "SWIPE", "SCROLL")
                         if (!actionResult.success && act in retryableGestureActions && service != null && !turnAbortRequested) {
+                            com.example.agent.AgentDiagnostics.recordEvent("action", "retrying failed gesture: $act '$tgt' - ${actionResult.message}")
                             addReasoningStep("Retrying failed gesture", "Action $act failed once ('${actionResult.message}'). Retrying once after 1s.", "RUNNING", "TOOL")
                             kotlinx.coroutines.delay(1000L)
                             actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
@@ -3023,6 +3052,17 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             postActionHierarchy = snapshot.hierarchy
                             addReasoningStep("Post-Action Event Settle (${snapshot.settleMs}ms)", "Accessibility event stream quiet after $act.", "RUNNING", "SYSTEM")
                             addReasoningStep("Step timing", "execute ${actionOutcome.executeMs}ms, settle ${snapshot.settleMs}ms, tree ${snapshot.captureMs}ms", "INFO", "SYSTEM")
+                            com.example.agent.AgentDiagnostics.recordActionStep(
+                                step = _currentStep.value,
+                                action = act,
+                                target = tgt,
+                                success = actionResult.success,
+                                message = actionResult.message,
+                                executeMs = actionOutcome.executeMs,
+                                settleMs = snapshot.settleMs,
+                                captureMs = snapshot.captureMs,
+                                treeSize = snapshot.hierarchy.length
+                            )
 
                             // Capture a screenshot only when the active model can actually
                             // see it. In tree-only mode this saves up to 3.5s per step.
@@ -3170,6 +3210,20 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             }
         } else {
              val modelText = modelTextParts.joinToString("\n")
+             if (modelText.isBlank() && parseRetryCount < 2 && _isProcessing.value) {
+                 parseRetryCount++
+                 com.example.agent.AgentDiagnostics.recordEvent("parse", "empty model response, corrective retry " + parseRetryCount + "/2")
+                 addReasoningStep("Parse retry", "Model returned no action and no text. Asking for a valid response (attempt " + parseRetryCount + "/2).", "WARNING", "SYSTEM")
+                 conversationHistory.add(Content(
+                     role = "user",
+                     parts = mutableListOf<Part>().apply {
+                         add(Part(text = "[PARSE_RETRY]: Your previous response contained no action or text. Emit exactly one computer_use_action tool call, or a report_task_status call, or a plain-text answer for the user."))
+                     }
+                 ))
+                 _agentState.value = AgentState.THINKING
+                 executeGeminiCall()
+                 return
+             }
              val isTaskDoneText = modelText.contains("เสร็จสิ้น") || modelText.contains("เรียบร้อยแล้ว") || modelText.contains("สำเร็จ") || modelText.contains("ครบถ้วน") || modelText.contains("completed") || modelText.contains("finished") || modelText.contains("DONE")
              val lastAction = _actionHistory.value.lastOrNull()
 
@@ -3203,6 +3257,24 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                  _agentState.value = AgentState.IDLE
                  _activeAction.value = null
              }
+        }
+    }
+
+    /** Comma-separated "Label (package)" list, rebuilt once per task. */
+    private fun getInstalledAppsSummary(): String {
+        installedAppsCache?.let { return it }
+        return try {
+            val pm = getApplication<android.app.Application>().packageManager
+            val summary = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+                .map { pm.getApplicationLabel(it).toString() to it.packageName }
+                .filter { it.first.isNotBlank() }
+                .distinctBy { it.second }
+                .sortedBy { it.first.lowercase() }
+                .joinToString(", ") { "${it.first} (${it.second})" }
+            installedAppsCache = summary
+            summary
+        } catch (e: Exception) {
+            ""
         }
     }
 
