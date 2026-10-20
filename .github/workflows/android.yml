@@ -39,3 +39,10 @@ jobs:
 
       - name: Assemble debug APK
         run: gradle :app:assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: zhypix-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 14
