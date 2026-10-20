@@ -58,6 +58,23 @@ class FloatingAgentService : Service() {
     
     // Interactive Controller Overlay Views (Zhypix Floating Button + Dynamic Island)
     private lateinit var controllerView: View
+
+    /**
+     * Bounds of zhypix's own floating overlay on screen, or null when the
+     * overlay is not attached. Used by the gesture engine as an exclusion
+     * region so agent gestures never hit our own UI.
+     */
+    fun getOverlayBoundsOnScreen(): android.graphics.Rect? {
+        if (!::controllerView.isInitialized) return null
+        return try {
+            if (!controllerView.isAttachedToWindow) return null
+            val loc = IntArray(2)
+            controllerView.getLocationOnScreen(loc)
+            android.graphics.Rect(loc[0], loc[1], loc[0] + controllerView.width, loc[1] + controllerView.height)
+        } catch (e: Exception) {
+            null
+        }
+    }
     private lateinit var controllerParams: WindowManager.LayoutParams
     private lateinit var bubbleBtn: FrameLayout
     private lateinit var glowRing: FrameLayout
