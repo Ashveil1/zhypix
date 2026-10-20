@@ -176,11 +176,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     private val _visionMode = MutableStateFlow("AUTO")
     val visionMode = _visionMode.asStateFlow()
 
-    private val _liveStreamEnabled = MutableStateFlow(true)
-    val liveStreamEnabled = _liveStreamEnabled.asStateFlow()
 
-    private val _screenshotInterval = MutableStateFlow(2000)
-    val screenshotInterval = _screenshotInterval.asStateFlow()
 
     private val _screenshotQuality = MutableStateFlow(60)
     val screenshotQuality = _screenshotQuality.asStateFlow()
@@ -452,15 +448,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     _visionMode.value = visionPref
                 }
 
-                val liveStreamPref = prefs.find { it.key == "cfg_liveStreamEnabled" }?.value
-                if (liveStreamPref != null) {
-                    _liveStreamEnabled.value = liveStreamPref.toBoolean()
-                }
 
-                val intervalPref = prefs.find { it.key == "cfg_screenshotInterval" }?.value
-                if (intervalPref != null) {
-                    _screenshotInterval.value = intervalPref.toIntOrNull() ?: 2000
-                }
 
                 val qualityPref = prefs.find { it.key == "cfg_screenshotQuality" }?.value
                 if (qualityPref != null) {
@@ -673,8 +661,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             }
             "webSearch" -> _webSearchEnabled.value = true
             "visionMode" -> _visionMode.value = value
-            "liveStreamEnabled" -> _liveStreamEnabled.value = value.toBoolean()
-            "screenshotInterval" -> _screenshotInterval.value = value.toIntOrNull() ?: 2000
             "screenshotQuality" -> _screenshotQuality.value = value.toIntOrNull() ?: 60
             "screenshotScale" -> _screenshotScale.value = value.toFloatOrNull() ?: 0.5f
         }
@@ -705,8 +691,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             prefList.add(UserPreference("cfg_autoSave", _autoSaveSettings.value.toString()))
             prefList.add(UserPreference("cfg_webSearch", _webSearchEnabled.value.toString()))
             prefList.add(UserPreference("cfg_visionMode", _visionMode.value))
-            prefList.add(UserPreference("cfg_liveStreamEnabled", _liveStreamEnabled.value.toString()))
-            prefList.add(UserPreference("cfg_screenshotInterval", _screenshotInterval.value.toString()))
             prefList.add(UserPreference("cfg_screenshotQuality", _screenshotQuality.value.toString()))
             prefList.add(UserPreference("cfg_screenshotScale", _screenshotScale.value.toString()))
             prefList.add(UserPreference("cfg_thai_voice", _thaiVoice.value))
@@ -1365,18 +1349,10 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     private var currentAgentJob: kotlinx.coroutines.Job? = null
     private var liveScreenStreamJob: kotlinx.coroutines.Job? = null
 
-    private fun startLiveScreenStream() {
-        // Obsolete: Claude Computer Use uses pull-based on-demand screenshots post-action
-    }
-
-    private fun stopLiveScreenStream() {
-        // Obsolete
-    }
 
     fun stopExecution() {
         currentAgentJob?.cancel()
         currentAgentJob = null
-        stopLiveScreenStream()
         stopInactivityWatchdog()
         wasWaitingForScreenLoad = false
         _isProcessing.value = false
@@ -1425,8 +1401,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         if (_isProcessing.value) {
             currentAgentJob?.cancel()
             currentAgentJob = null
-            stopLiveScreenStream()
-            addReasoningStep("Task Interrupted & Replaced", "New instruction received. Cancelling current task and starting new request.", "WARNING", "USER")
+                addReasoningStep("Task Interrupted & Replaced", "New instruction received. Cancelling current task and starting new request.", "WARNING", "USER")
         }
         
         _messages.value += ChatMessage.User(text)
@@ -3049,8 +3024,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 _isProcessing.value = false
                 _agentState.value = AgentState.IDLE
                 _activeAction.value = null
-                stopLiveScreenStream()
-                stopInactivityWatchdog()
+                        stopInactivityWatchdog()
                 val pauseReason = if (pendingSensitiveActionDesc != null)
                     "Waiting for your confirmation of a sensitive action."
                 else
@@ -3091,8 +3065,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                  autoContinueCount = 0
                  // Turn finished
                  addReasoningStep("Agent Task Sequence Resolved", "Finished processing all instructions. Standby mode activated.", "SUCCESS", "SYSTEM")
-                 stopLiveScreenStream()
-                 stopInactivityWatchdog()
+                          stopInactivityWatchdog()
                  wasWaitingForScreenLoad = false
                  _isProcessing.value = false
                  _agentState.value = AgentState.IDLE

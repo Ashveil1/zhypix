@@ -33,13 +33,13 @@ fallback, verify every step).
       mispaste fixed (branch screen-control-rebuild).
 - [x] New `com.example.agent` package: Perception + ActionExecutor, built
       against ZhypixAccessibilityService's improved primitives.
-- [ ] AgentViewModel's computer_use_action handler routes through
+- [x] AgentViewModel's computer_use_action handler routes through
       ActionExecutor; old paths (screenshot-interval loop, fixed delays,
-      duplicate helpers) deleted.
+      duplicate helpers, dead stream settings) deleted (PRs #3, #5).
 - [x] Touch-to-pause: external click events pause the run (agent gestures filtered by recency);
 
-- [ ] Numbers: log per-step latency (settle ms, action ms, verify ms) so we
-      can report real before/after speed.
+- [x] Numbers: per-step latency logged (execute/settle/tree ms) via
+      ActionExecutor + Perception telemetry (PR #3).
 
 ## Not in scope
 
