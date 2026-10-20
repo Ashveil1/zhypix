@@ -93,11 +93,16 @@ class LiveToolBridge(
 
         val result = GestureMapper.executeAction(service, actionType, target, contextProvider())
         val hierarchy = try {
-            service.awaitTreeSettle()
+            // Live's context is small (~60k): cap the tree per tool response.
+            service.awaitTreeSettle().take(MAX_HIERARCHY_CHARS)
         } catch (e: Exception) {
             ""
         }
         return buildResponse(result.success, result.message, hierarchy)
+    }
+
+    companion object {
+        private const val MAX_HIERARCHY_CHARS = 4000
     }
 
     internal fun buildResponse(success: Boolean, message: String, hierarchy: String): JSONObject {
