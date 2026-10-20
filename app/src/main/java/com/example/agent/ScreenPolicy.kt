@@ -16,7 +16,7 @@ object ScreenPolicy {
     const val JPEG_QUALITY = 75
     const val CAPTURE_QUEUE_SLOTS = 3
     // Not specified by the study: explicit local choices, not claimed parity.
-    const val DEFAULT_POST_ACTION_MS = 0L
+    const val DEFAULT_POST_ACTION_MS = 1000L
     const val RETRIES_PER_STAGE = 1
     const val GESTURE_TIMEOUT_MS = 5000L
     const val CAPTURE_TIMEOUT_MS = 15000L
