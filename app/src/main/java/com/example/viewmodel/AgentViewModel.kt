@@ -2813,7 +2813,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             addReasoningStep("Precondition Guard Alert", "Target '$tgt' missing or not visible on screen. Skipping action to prevent misclicks.", "WARNING", "TOOL")
                         }
                         
-                        val actionResult = com.example.service.GestureMapper.executeAction(service, act, tgt, getApplication<android.app.Application>())
+                        val actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
+                        val actionResult = actionOutcome.result
                         
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = false
@@ -2851,13 +2852,12 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             // goes quiet (120ms without events) instead of a fixed sleep.
                             // Typical taps settle in ~150-300ms vs the old fixed 450ms,
                             // and app launches break early instead of always waiting 1200ms.
-                            val settleCapMs = if (normAct == "OPEN_APP") 2500L else 900L
-                            val waitedMs = service.awaitEventQuiet(quietMs = 120L, maxWaitMs = settleCapMs)
-                            addReasoningStep("Post-Action Event Settle (${waitedMs}ms)", "Accessibility event stream quiet after $act (cap ${settleCapMs}ms).", "RUNNING", "SYSTEM")
-
                             _lastScreenshot.value = null
                             service.invalidateScreenshotCache()
-                            postActionHierarchy = service.getActiveWindowHierarchy()
+                            val snapshot = com.example.agent.Perception.settleAndSnapshot(service, isAppLaunch = normAct == "OPEN_APP")
+                            postActionHierarchy = snapshot.hierarchy
+                            addReasoningStep("Post-Action Event Settle (${snapshot.settleMs}ms)", "Accessibility event stream quiet after $act.", "RUNNING", "SYSTEM")
+                            addReasoningStep("Step timing", "execute ${actionOutcome.executeMs}ms, settle ${snapshot.settleMs}ms, tree ${snapshot.captureMs}ms", "INFO", "SYSTEM")
 
                             // Capture a screenshot only when the active model can actually
                             // see it. In tree-only mode this saves up to 3.5s per step.
