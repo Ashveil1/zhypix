@@ -1203,6 +1203,52 @@ class FloatingAgentService : Service() {
         }
         headerRow.addView(speakerBtn)
 
+        // Live mode entry: opens the in-app Live screen (Gemini provider + Live model only)
+        val liveBtn = FrameLayout(this).apply {
+            val size = (28 * density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                rightMargin = (8 * density).toInt()
+            }
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#1A1A1E"))
+                setStroke((1f * density).toInt(), Color.parseColor("#2E2E33"))
+            }
+            setOnClickListener {
+                val vm = AgentViewModel.instance
+                val available = vm?.let {
+                    com.example.ui.live.LiveSessionHost.liveAvailability(it).first
+                } == true
+                if (available) {
+                    com.example.ui.live.LiveSessionHost.requestOpen()
+                    val launch = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                        addFlags(
+                            android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                                android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        )
+                    }
+                    if (launch != null) startActivity(launch)
+                    morphIsland(IslandMode.COLLAPSED)
+                } else {
+                    android.widget.Toast.makeText(
+                        this@FloatingAgentService,
+                        "Live needs a Gemini provider with a Live model",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+        val liveIv = android.widget.ImageView(this).apply {
+            val iconSize = (14 * density).toInt()
+            layoutParams = FrameLayout.LayoutParams(iconSize, iconSize).apply {
+                gravity = Gravity.CENTER
+            }
+            setImageResource(com.zhypix.R.drawable.ic_smart_toy)
+            setColorFilter(Color.parseColor("#FAFAFA"))
+        }
+        liveBtn.addView(liveIv)
+        headerRow.addView(liveBtn)
+
         // Close / Minimize Island Button
         val closeBtn = FrameLayout(this).apply {
             val size = (28 * density).toInt()

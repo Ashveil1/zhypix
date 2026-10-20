@@ -125,7 +125,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 
 @Composable
-fun ChatScreenBody(viewModel: AgentViewModel) {
+fun ChatScreenBody(viewModel: AgentViewModel, onOpenLive: (() -> Unit)? = null) {
     val messages by viewModel.messages.collectAsState()
     val isProcessing by viewModel.isProcessing.collectAsState()
     val agentState by viewModel.agentState.collectAsState()
@@ -265,7 +265,8 @@ fun ChatScreenBody(viewModel: AgentViewModel) {
             BottomInputBar(
                 viewModel = viewModel,
                 onSend = { text -> viewModel.sendCommand(text) },
-                isProcessing = isProcessing
+                isProcessing = isProcessing,
+                onOpenLive = onOpenLive
             )
         }
 
