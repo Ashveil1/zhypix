@@ -18,6 +18,7 @@ import com.example.agent.AgentDiagnostics
 import com.example.service.ZhypixAccessibilityService
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeNotNull
 import org.junit.Before
