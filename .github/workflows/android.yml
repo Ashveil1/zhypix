@@ -106,16 +106,20 @@ jobs:
           disable-animations: true
           script: |
             set -x
+            rm -f /tmp/e2e_failed
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell settings put secure enabled_accessibility_services com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService
             adb shell settings put secure accessibility_enabled 1
             sleep 5
-            adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner || TEST_FAILED=1
+            adb shell dumpsys accessibility > dumpsys_accessibility.txt || true
+            adb logcat -c || true
+            adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner || echo failed > /tmp/e2e_failed
+            adb logcat -d > logcat.txt || true
             adb shell run-as com.zhypix.app.jdufyx cat files/agent_diagnostics.jsonl > agent_diagnostics.jsonl || true
             adb shell screencap -p /sdcard/e2e_final.png || true
             adb pull /sdcard/e2e_final.png e2e_final.png || true
-            if [ "$TEST_FAILED" = "1" ]; then exit 1; fi
+            [ ! -f /tmp/e2e_failed ] || exit 1
 
       - name: Upload e2e artifacts
         if: always()
@@ -125,5 +129,7 @@ jobs:
           path: |
             agent_diagnostics.jsonl
             e2e_final.png
+            dumpsys_accessibility.txt
+            logcat.txt
           retention-days: 14
           if-no-files-found: ignore
