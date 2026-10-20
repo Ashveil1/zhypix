@@ -114,12 +114,13 @@ jobs:
             sleep 5
             adb shell dumpsys accessibility > dumpsys_accessibility.txt || true
             adb logcat -c || true
-            adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner || echo failed > /tmp/e2e_failed
+            adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner || touch /tmp/e2e_failed
             adb logcat -d > logcat.txt || true
+            adb shell dumpsys accessibility > dumpsys_accessibility_after.txt || true
             adb shell run-as com.zhypix.app.jdufyx cat files/agent_diagnostics.jsonl > agent_diagnostics.jsonl || true
             adb shell screencap -p /sdcard/e2e_final.png || true
             adb pull /sdcard/e2e_final.png e2e_final.png || true
-            [ ! -f /tmp/e2e_failed ] || exit 1
+            test ! -f /tmp/e2e_failed
 
       - name: Upload e2e artifacts
         if: always()
@@ -130,6 +131,7 @@ jobs:
             agent_diagnostics.jsonl
             e2e_final.png
             dumpsys_accessibility.txt
+            dumpsys_accessibility_after.txt
             logcat.txt
           retention-days: 14
           if-no-files-found: ignore

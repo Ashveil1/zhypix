@@ -40,10 +40,13 @@ class ScreenControlE2eTest {
 
     private fun awaitService(timeoutMs: Long = 20_000): ZhypixAccessibilityService {
         // `am instrument` force-stops the app before running, which unbinds
-        // the accessibility service and blocks re-binding. Re-enable it from
-        // here: UiAutomation shell commands run with shell permissions, which
-        // include WRITE_SECURE_SETTINGS.
+        // the accessibility service and blocks re-binding while the package is
+        // stopped. Launching the main activity from the shell counts as an
+        // external start and clears the stopped state; then re-enable the
+        // service (UiAutomation shell commands carry WRITE_SECURE_SETTINGS).
         try {
+            device.executeShellCommand("am start -n com.zhypix.app.jdufyx/com.example.MainActivity")
+            Thread.sleep(2000)
             device.executeShellCommand("settings put secure enabled_accessibility_services com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService")
             device.executeShellCommand("settings put secure accessibility_enabled 1")
         } catch (e: Exception) {
