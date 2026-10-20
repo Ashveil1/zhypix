@@ -46,7 +46,7 @@ class AgentMemoryTest {
 
     @Test fun capsLengthAndCount() {
         val m = AgentMemory(JsonListStore(File(System.getProperty("java.io.tmpdir"), "mem-${System.nanoTime()}/m.json")), maxNotes = 3, maxLength = 10)
-        (1..5).forEach { m.remember("note number $it", it.toLong()) }
+        (1..5).forEach { m.remember("${it}x" + "y".repeat(20), it.toLong()) }
         assertEquals(3, m.all().size)
         assertTrue(m.all().all { it.text.length <= 10 })
     }
