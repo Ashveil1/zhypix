@@ -58,6 +58,7 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb push /tmp/live-model-test.json /data/local/tmp/live-model-test.json
+            adb shell run-as com.zhypix.app.jdufyx mkdir -p files
             adb shell run-as com.zhypix.app.jdufyx cp /data/local/tmp/live-model-test.json files/live-model-test.json
             adb shell rm /data/local/tmp/live-model-test.json
             rm -f /tmp/live-model-test.json

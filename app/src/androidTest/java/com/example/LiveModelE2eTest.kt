@@ -65,7 +65,11 @@ class LiveModelE2eTest {
                 evidence.appendText("Action: $action\n")
                 // Deliberately narrow: no typing, app launch, purchases, settings toggles or arbitrary intents.
                 val success=when(action){
-                    is ScreenAction.Click-> device.click(action.x,action.y)
+                    is ScreenAction.Click-> {
+                        val expected=device.findObject(By.text("Network & internet"))
+                        if(expected!=null && expected.visibleBounds.contains(action.x,action.y)) device.click(action.x,action.y)
+                        else false
+                    }
                     ScreenAction.PressBack->device.pressBack()
                     is ScreenAction.Wait->{kotlinx.coroutines.delay(action.durationMs.coerceAtMost(3000));true}
                     else->false
@@ -75,7 +79,7 @@ class LiveModelE2eTest {
         )
         val result=loop.run(maxSteps=6)
         evidence.appendText("Terminal: $result\n")
-        device.dumpWindowHierarchy(java.io.File(context.filesDir,"live-model-final.xml"))
+        device.dumpWindowHierarchy(java.io.File(context.filesDir,"live-model-final.xml").absolutePath)
         assertTrue("Model did not report completion: $result",result is ScreenAction.Finished)
         val toolbar=device.findObject(By.res("com.android.settings:id/collapsing_toolbar"))
         assertEquals("Network & internet",toolbar?.contentDescription)
