@@ -32,6 +32,7 @@ class LiveSessionManager(
     private val modelId: String,
     private val systemPrompt: String,
     private val baseWsUrl: String = DEFAULT_WS_URL,
+    private val toolsPayload: JSONArray? = null,
 ) {
 
     enum class State { IDLE, CONNECTING, LISTENING, SPEAKING, ACTING, ERROR, CLOSED }
@@ -108,6 +109,9 @@ class LiveSessionManager(
                     .put("responseModalities", JSONArray().put("TEXT")))
                 .put("systemInstruction", JSONObject()
                     .put("parts", JSONArray().put(JSONObject().put("text", systemPrompt)))))
+        if (toolsPayload != null) {
+            setup.getJSONObject("setup").put("tools", toolsPayload)
+        }
         ws.send(setup.toString())
     }
 
