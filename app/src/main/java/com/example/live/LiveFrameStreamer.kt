@@ -52,12 +52,13 @@ class LiveFrameStreamer(
         val state = session.state.value
         if (state != LiveSessionManager.State.LISTENING && state != LiveSessionManager.State.SPEAKING) return
         val service = serviceProvider() ?: return
-        service.takeScreenshotWithHash(forceFresh = false) { base64, hash ->
-            if (base64 != null && hash != 0L && hash != lastSentHash) {
-                lastSentHash = hash
-                framesSent++
-                session.sendVideoFrame(base64)
-            }
+        val frame = service.observation.screenshot() ?: return
+        // Content signature suppresses byte-identical frames. No screenshot is logged.
+        val signature = frame.base64.hashCode().toLong()
+        if (signature != lastSentHash) {
+            lastSentHash = signature
+            framesSent++
+            session.sendVideoFrame(frame.base64)
         }
     }
 

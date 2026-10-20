@@ -3,7 +3,7 @@ package com.example.service
 import android.accessibilityservice.AccessibilityService
 import android.view.accessibility.AccessibilityEvent
 
-/** Stable service identity only. Legacy screen control was removed for a clean rebuild. */
+/** Stable Android service identity with new independently implemented device adapters. */
 class ZhypixAccessibilityService : AccessibilityService() {
     companion object { var instance: ZhypixAccessibilityService? = null }
     override fun onServiceConnected() { super.onServiceConnected(); instance = this }
@@ -15,9 +15,5 @@ class ZhypixAccessibilityService : AccessibilityService() {
     }
     val device by lazy { ScreenDevice(this) }
     val observation by lazy { ScreenObservation(this) }
-    // Temporary inactive interfaces for chat and voice while replacement lands.
-    fun getActiveWindowHierarchy(): String = "Screen control is being rebuilt."
-    fun takeScreenshotWithHash(forceFresh: Boolean = false, callback: (String?, Long) -> Unit) {
-        callback(null, 0L)
-    }
+    fun getActiveWindowHierarchy(): String = observation.phoneState()
 }

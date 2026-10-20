@@ -108,6 +108,7 @@ class LiveController(
     }
 
     companion object {
-        const val DEFAULT_SYSTEM_PROMPT = ""
+        val DEFAULT_SYSTEM_PROMPT = com.example.agent.ScreenPrompt.TEXT +
+            "\nIn Live mode, send each action string through screen_action. Wait for the tool result and a fresh screen frame. The user must approve every physical action. Keep spoken answers brief and use the user's language."
     }
 }
