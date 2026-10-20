@@ -147,6 +147,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     init {
         instance = this
         // Initialize the flow before a Main.immediate collector can access it.
+        startRoutineTicker()
         viewModelScope.launch {
             _isProcessing.collect { active ->
                 try { com.example.service.FloatingAgentService.instance?.setAgentActive(active) } catch (_: Exception) {}
@@ -1210,6 +1211,26 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 ),
                 mapOf(
+                    "name" to "schedule_routine",
+                    "description" to "Save a screen task to run on a schedule while the app is open. Give either every_minutes (15 or more) or daily_at as HH:MM local time. Runs stop and ask the user before sensitive actions.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
+                        "name" to mapOf("type" to "STRING"),
+                        "task" to mapOf("type" to "STRING", "description" to "The complete screen task"),
+                        "every_minutes" to mapOf("type" to "INTEGER"),
+                        "daily_at" to mapOf("type" to "STRING", "description" to "HH:MM, 24-hour local time")
+                    ), "required" to listOf("name", "task"))
+                ),
+                mapOf(
+                    "name" to "list_routines",
+                    "description" to "List saved routines with their ids and schedules.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to emptyMap<String, Any>())
+                ),
+                mapOf(
+                    "name" to "delete_routine",
+                    "description" to "Delete a saved routine by id.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf("id" to mapOf("type" to "STRING")), "required" to listOf("id"))
+                ),
+                mapOf(
                     "name" to "recall_memory",
                     "description" to "Look up facts the user asked you to remember. Use before saying you do not know something personal.",
                     "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
@@ -1733,6 +1754,22 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         ),
                         mapOf("type" to "function", "function" to mapOf(
+                            "name" to "schedule_routine",
+                            "description" to "Save a screen task to run on a schedule while the app is open. Give either every_minutes (15 or more) or daily_at as HH:MM local time. Runs stop and ask the user before sensitive actions.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf(
+                                "name" to mapOf("type" to "string"), "task" to mapOf("type" to "string"),
+                                "every_minutes" to mapOf("type" to "integer"), "daily_at" to mapOf("type" to "string")
+                            ), "required" to listOf("name", "task"))
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
+                            "name" to "list_routines", "description" to "List saved routines with ids and schedules.",
+                            "parameters" to mapOf("type" to "object", "properties" to emptyMap<String, Any>())
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
+                            "name" to "delete_routine", "description" to "Delete a saved routine by id.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf("id" to mapOf("type" to "string")), "required" to listOf("id"))
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
                             "name" to "recall_memory",
                             "description" to "Look up facts the user asked you to remember. Use before saying you do not know something personal.",
                             "parameters" to mapOf("type" to "object", "properties" to mapOf("query" to mapOf("type" to "string")), "required" to listOf("query"))
@@ -2143,6 +2180,31 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         )))
                     }
 
+                    "schedule_routine" -> {
+                        val result = try {
+                            val every = (call.args?.get("every_minutes") as? Number)?.toInt()
+                            val daily = (call.args?.get("daily_at") as? String)?.takeIf { it.isNotBlank() }?.let {
+                                val m = Regex("""^(\d{1,2}):(\d{2})$""").matchEntire(it.trim()) ?: throw IllegalArgumentException("daily_at must be HH:MM")
+                                m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+                            }
+                            val r = com.example.agent.Routine.create(call.args?.get("name") as? String ?: "", call.args?.get("task") as? String ?: "", every, daily)
+                            routineStore.save(r)
+                            mapOf("status" to "success", "id" to r.id, "note" to "Runs only while Zhypix is open and accessibility is enabled.")
+                        } catch (e: IllegalArgumentException) { mapOf("status" to "error", "message" to (e.message ?: "Invalid routine")) }
+                        responseParts.add(Part(functionResponse = FunctionResponse(name = call.name, response = result)))
+                    }
+                    "list_routines" -> {
+                        val text = routineStore.all().joinToString("\n") { r ->
+                            "${r.id}: ${r.name} - " + (r.intervalMinutes?.let { "every $it min" } ?: "daily %02d:%02d".format(r.dailyMinuteOfDay!! / 60, r.dailyMinuteOfDay % 60)) + (if (r.enabled) "" else " (disabled)")
+                        }.ifBlank { "No routines." }
+                        responseParts.add(Part(functionResponse = FunctionResponse(name = call.name, response = mapOf("status" to "success", "routines" to text))))
+                    }
+                    "delete_routine" -> {
+                        val id = call.args?.get("id") as? String ?: ""
+                        val existed = routineStore.all().any { it.id == id }
+                        if (existed) routineStore.delete(id)
+                        responseParts.add(Part(functionResponse = FunctionResponse(name = call.name, response = mapOf("status" to if (existed) "success" else "not_found"))))
+                    }
                     "recall_memory" -> {
                         val q = call.args?.get("query") as? String ?: ""
                         val notes = agentMemory.recall(q).map { it.text }
@@ -2557,6 +2619,30 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         val terminal = loop.run()
         try { needsYouStore.record(task, terminal, System.currentTimeMillis()) } catch (_: Exception) { /* persistence must never break the task result */ }
         return terminal
+    }
+
+    private val routineStore by lazy {
+        com.example.agent.RoutineStore(com.example.agent.JsonListStore(java.io.File(getApplication<android.app.Application>().filesDir, "routines.json")))
+    }
+
+    /** Checks once a minute while the app process is alive. Never overlaps a running task; marks the run before starting so a crash cannot loop. */
+    private var routineTicker: kotlinx.coroutines.Job? = null
+    fun startRoutineTicker() {
+        if (routineTicker?.isActive == true) return
+        routineTicker = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(60_000L)
+                try {
+                    if (_isProcessing.value || com.example.service.ZhypixAccessibilityService.instance == null) continue
+                    val due = routineStore.due(System.currentTimeMillis()).firstOrNull() ?: continue
+                    routineStore.markRan(due.id, System.currentTimeMillis())
+                    addReasoningStep("Routine due", due.name, "RUNNING", "SYSTEM")
+                    val terminal = runScreenTask(due.task)
+                    addReasoningStep("Routine finished", "${due.name}: ${terminal.message}", "SUCCESS", "SYSTEM")
+                } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (e: Exception) { addReasoningStep("Routine failed", e.message ?: "unknown", "WARNING", "SYSTEM") }
+            }
+        }
     }
 
     private val agentMemory by lazy {
