@@ -110,7 +110,8 @@ class ScreenDevice(private val service: ZhypixAccessibilityService) {
         val intent=service.packageManager.getLaunchIntentForPackage(pkg) ?: return fail("No launch activity for $pkg")
         return try {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-            service.startActivity(intent);ok("Launched $pkg")
+            service.startActivity(intent)
+            ok("Launched $pkg")
         } catch (error:Exception) { fail("Failed to launch $pkg: ${error.message}") }
     }
 }

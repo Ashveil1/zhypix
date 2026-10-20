@@ -30,7 +30,11 @@ class ScreenObservation(private val service: ZhypixAccessibilityService) {
         val state = async(Dispatchers.Main.immediate) { phoneState() }
         val frame = screenshot() ?: throw IllegalStateException("Cannot capture the current screen. Unlock the device and check accessibility permission.")
         val dm=service.resources.displayMetrics
+        val packages=withContext(Dispatchers.IO) {
+            service.packageManager.getInstalledApplications(0).map{it.packageName}.sorted().joinToString(",")
+        }
         val meta=JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL)
+            .put("installed_packages",packages).put("device",Build.DEVICE).put("brand",Build.BRAND).put("product",Build.PRODUCT).put("hardware",Build.HARDWARE)
             .put("os_version",Build.VERSION.RELEASE).put("sdk_int",Build.VERSION.SDK_INT)
             .put("screen_width",dm.widthPixels).put("screen_height",dm.heightPixels)
             .put("scaled_screen_width",frame.width).put("scaled_screen_height",frame.height)

@@ -34,6 +34,7 @@ class ScreenLoop(
                 val action = (parsed as? ActionParseResult.Ok)?.action
                     ?: return ScreenAction.FailedToCompleteTask("The model returned an invalid action twice.")
                 if (action is ScreenAction.Terminal) return action
+                if (action is ScreenAction.Walkthrough) return ScreenAction.MessageUser(action.steps)
                 var result = execute(action)
                 if (!result.success && result.safeToRetry) {
                     sleep(ScreenPolicy.STAGE_RETRY_MS)
