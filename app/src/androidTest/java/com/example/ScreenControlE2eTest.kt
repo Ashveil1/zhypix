@@ -62,15 +62,7 @@ class ScreenControlE2eTest {
 
     private fun dumpHierarchy(name: String) {
         try {
-            val f = java.io.File(context.filesDir, name)
-            val pfd = android.os.ParcelFileDescriptor.open(
-                f,
-                android.os.ParcelFileDescriptor.MODE_WRITE_ONLY or
-                    android.os.ParcelFileDescriptor.MODE_CREATE or
-                    android.os.ParcelFileDescriptor.MODE_TRUNCATE
-            )
-            device.dumpWindowHierarchy(pfd)
-            pfd.close()
+            device.dumpWindowHierarchy(java.io.File(context.filesDir, name).absolutePath)
         } catch (e: Exception) {
             android.util.Log.e("E2E-DIAG", "dumpHierarchy($name) failed", e)
         }
