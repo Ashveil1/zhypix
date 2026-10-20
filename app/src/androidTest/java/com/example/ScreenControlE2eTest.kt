@@ -47,18 +47,32 @@ class ScreenControlE2eTest {
         try {
             device.executeShellCommand("am start -n com.zhypix.app.jdufyx/com.example.MainActivity")
             Thread.sleep(2000)
-            device.executeShellCommand("settings put secure enabled_accessibility_services com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService")
-            device.executeShellCommand("settings put secure accessibility_enabled 1")
+            enableAccessibilityService()
         } catch (e: Exception) {
             // fall through to the polling failure below
         }
         val start = System.currentTimeMillis()
+        var lastReenable = 0L
         while (System.currentTimeMillis() - start < timeoutMs) {
             ZhypixAccessibilityService.instance?.let { return it }
+            // The force-stop before instrumentation marks the bound service
+            // crashed; writing the same settings value is a no-op, so toggle
+            // accessibility off/on every 6s to force a re-bind attempt.
+            if (System.currentTimeMillis() - lastReenable > 6000L) {
+                lastReenable = System.currentTimeMillis()
+                try { enableAccessibilityService() } catch (e: Exception) {}
+            }
             Thread.sleep(250)
         }
         fail("ZhypixAccessibilityService not connected - enable it with: adb shell settings put secure enabled_accessibility_services com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService")
         throw IllegalStateException("unreachable")
+    }
+
+    private fun enableAccessibilityService() {
+        device.executeShellCommand("settings put secure accessibility_enabled 0")
+        Thread.sleep(400)
+        device.executeShellCommand("settings put secure enabled_accessibility_services com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService")
+        device.executeShellCommand("settings put secure accessibility_enabled 1")
     }
 
     private fun openSettings() {

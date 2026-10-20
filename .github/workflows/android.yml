@@ -114,7 +114,9 @@ jobs:
             sleep 5
             adb shell dumpsys accessibility > dumpsys_accessibility.txt || true
             adb logcat -c || true
-            adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner || touch /tmp/e2e_failed
+            adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee instrument_output.txt || true
+            grep -q "FAILURES!!!" instrument_output.txt && touch /tmp/e2e_failed
+            grep -q "OK (" instrument_output.txt || touch /tmp/e2e_failed
             adb logcat -d > logcat.txt || true
             adb shell dumpsys accessibility > dumpsys_accessibility_after.txt || true
             adb shell run-as com.zhypix.app.jdufyx cat files/agent_diagnostics.jsonl > agent_diagnostics.jsonl || true
