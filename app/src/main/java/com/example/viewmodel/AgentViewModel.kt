@@ -244,7 +244,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     fun startInactivityWatchdog() {
         watchdogJob?.cancel()
         lastActionTime = System.currentTimeMillis()
-        watchdogJob = viewModelScope.launch {
+        watchdogJob = viewModelScope.launch(Dispatchers.IO) {
             while (coroutineContext.isActive) {
                 kotlinx.coroutines.delay(1000L)
                 if (!_isProcessing.value) {

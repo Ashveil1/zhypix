@@ -506,6 +506,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
 
     fun getActiveWindowHierarchy(): String {
         val builder = StringBuilder()
+        traverseBudget.set(400)
         
         // Capture all interactive windows to avoid being "blinded" by our overlay window
         val windowList = try {
@@ -568,8 +569,23 @@ class ZhypixAccessibilityService : AccessibilityService() {
         return builder.toString()
     }
 
+    private val traverseBudget = ThreadLocal<Int>()
+
     private fun traverseNode(node: AccessibilityNodeInfo?, builder: StringBuilder, depth: Int) {
         if (node == null) return
+        // Bound the dump: full traversals of large trees (thousands of binder
+        // calls) are the main source of agent-mode jank on device.
+        if (depth > 20) return
+        val budget = traverseBudget.get() ?: 0
+        if (budget <= 0 || builder.length > 60000) {
+            if (budget > 0 && builder.length > 60000) {
+                builder.append("  [hierarchy truncated: size limit]
+")
+                traverseBudget.set(0)
+            }
+            return
+        }
+        traverseBudget.set(budget - 1)
 
         val indent = "  ".repeat(depth)
         val text = node.text?.toString() ?: ""
