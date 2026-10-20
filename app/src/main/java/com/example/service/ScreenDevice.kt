@@ -118,7 +118,7 @@ class ScreenDevice(private val service: ZhypixAccessibilityService) {
             ViewConfiguration.getLongPressTimeout().toLong()+ScreenPolicy.LONG_PRESS_EXTRA_MS,true)
         val started=dispatch(GestureDescription.Builder().addStroke(press))
         if (!started.success) return started
-        val continuation=press.createContinueStroke(movement,0,duration,false)
+        val continuation=press.continueStroke(movement,0,duration,false)
         val moved=dispatch(GestureDescription.Builder().addStroke(continuation))
         // Once the hold was sent, never auto-repeat the whole drag even if continuation was rejected.
         return moved.copy(safeToRetry=false)
