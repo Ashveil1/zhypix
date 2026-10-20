@@ -60,7 +60,10 @@ class LiveModelE2eTest {
                 ScreenLoop.Observation(Base64.encodeToString(bytes.toByteArray(),Base64.NO_WRAP),text.toString(),
                     JSONObject().put("screen_width",w).put("screen_height",h).put("scaled_screen_width",sw).put("scaled_screen_height",sh).toString())
             },
-            decide={observation,history->model.decide("Open the Network & internet page from Android Settings. Do not toggle or change anything. Once the page is visibly open, return finished.",observation,history)},
+            decide={observation,history->
+                val reply=try{model.decide("Open the Network & internet page from Android Settings. Do not toggle or change anything. Once the page is visibly open, return finished.",observation,history)}catch(e:Exception){evidence.appendText("Model error: ${e.message}\n");throw e}
+                evidence.appendText("Reply: ${reply.take(300).replace("\n"," ")}\n")
+                reply},
             execute={action->
                 evidence.appendText("Action: $action\n")
                 // Deliberately narrow: no typing, app launch, purchases, settings toggles or arbitrary intents.
