@@ -18,7 +18,7 @@ import java.io.File
  * Binaries are faked with valid ELF headers so no real proot/busybox is needed on the JVM.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [35])
 class PtyLaunchSpecTest {
 
   private fun fakeElf(path: String, context: Context) {
