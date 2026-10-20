@@ -252,6 +252,7 @@ fun AgentMessageBubble(message: ChatMessage.Agent) {
 }
 
 
+
 @Composable
 fun SystemMessageItem(message: ChatMessage) {
     val text = when (message) {
@@ -259,7 +260,41 @@ fun SystemMessageItem(message: ChatMessage) {
         else -> ""
     }
 
-    if (text.isNotBlank()) {
+    if (text.isBlank()) return
+
+    // Sensitive-action confirmation requests get a warning treatment so the
+    // user cannot miss that the agent is waiting for an explicit answer.
+    val isConfirmRequest = text.contains("Reply 'confirm'")
+
+    if (isConfirmRequest) {
+        Surface(
+            color = OrangeWarning.copy(alpha = 0.08f),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, OrangeWarning.copy(alpha = 0.35f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Confirmation required",
+                    tint = OrangeWarning,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = text,
+                    color = TextPrimary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    } else {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -280,7 +315,6 @@ fun SystemMessageItem(message: ChatMessage) {
         }
     }
 }
-
 
 @Composable
 fun ProviderConfigRequiredBubble(message: ChatMessage.ProviderConfigRequired) {
