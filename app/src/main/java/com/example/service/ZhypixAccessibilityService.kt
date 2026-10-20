@@ -35,10 +35,11 @@ class ZhypixAccessibilityService : AccessibilityService() {
     private var windowManager: WindowManager? = null
 
     fun invalidateScreenshotCache() {
+        // Called on every window content-change event - keep it allocation-
+        // and log-free (logcat writes flood during animations).
         lastScreenshotBase64 = null
         lastScreenshotTime = 0L
         lastDHash = 0L
-        Log.d("Zhypix", "Screenshot cache invalidated due to user action")
     }
 
     override fun onServiceConnected() {

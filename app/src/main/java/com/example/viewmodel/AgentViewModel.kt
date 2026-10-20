@@ -375,16 +375,47 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     private val _reasoningChain = MutableStateFlow<List<ReasoningStep>>(emptyList())
     val reasoningChain = _reasoningChain.asStateFlow()
 
+    private val reasoningTimeFormat = ThreadLocal.withInitial {
+        java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+    }
+    private var lastReasoningEmitAt = 0L
+    private var pendingReasoningStep: ReasoningStep? = null
+    private var reasoningFlushJob: kotlinx.coroutines.Job? = null
+
     fun addReasoningStep(title: String, description: String, status: String = "SUCCESS", type: String = "INFO") {
-        val sdf = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-        val timeStr = sdf.format(java.util.Date())
-        _reasoningChain.value = _reasoningChain.value + ReasoningStep(
+        val step = ReasoningStep(
             title = title,
             description = description,
-            timestamp = timeStr,
+            timestamp = reasoningTimeFormat.get()!!.format(java.util.Date()),
             status = status,
             type = type
         )
+        // Coalesce bursts: a single action emits ~10 steps, and every emission
+        // used to trigger a full overlay/chat recomposition. Failures and
+        // warnings always emit immediately; routine steps flush at ~6/sec.
+        val now = System.currentTimeMillis()
+        val always = status == "FAILED" || status == "WARNING"
+        if (always || now - lastReasoningEmitAt >= 150L) {
+            lastReasoningEmitAt = now
+            val pending = pendingReasoningStep
+            pendingReasoningStep = null
+            val base = if (pending != null) _reasoningChain.value + pending else _reasoningChain.value
+            _reasoningChain.value = (base + step).takeLast(200)
+        } else {
+            pendingReasoningStep = step
+            scheduleReasoningFlush()
+        }
+    }
+
+    private fun scheduleReasoningFlush() {
+        if (reasoningFlushJob?.isActive == true) return
+        reasoningFlushJob = appScope.launch {
+            kotlinx.coroutines.delay(160L)
+            val p = pendingReasoningStep ?: return@launch
+            pendingReasoningStep = null
+            lastReasoningEmitAt = System.currentTimeMillis()
+            _reasoningChain.value = (_reasoningChain.value + p).takeLast(200)
+        }
     }
 
     fun clearReasoningChain() {
