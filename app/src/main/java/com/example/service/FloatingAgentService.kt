@@ -789,7 +789,7 @@ class FloatingAgentService : Service() {
                         isHoveringRemove = (distFromBottom < (180 * density)) && (distFromHorizCenter < (110 * density))
 
                         if (isHoveringRemove && !wasHovering) {
-                            removeCircleBg.setColor(Color.parseColor("#E53935"))
+                            removeCircleBg.setColor(Color.parseColor("#FB7185"))
                             removeCircleBg.setStroke((2 * density).toInt(), Color.WHITE)
                             removeCircle.animate().scaleX(1.28f).scaleY(1.28f).setDuration(160).start()
                             v.animate().scaleX(0.7f).scaleY(0.7f).alpha(0.6f).setDuration(160).start()
@@ -1061,8 +1061,8 @@ class FloatingAgentService : Service() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 14f * density
-                setColor(Color.parseColor("#1C1C1E"))
-                setStroke((1f * density).toInt(), Color.parseColor("#666666"))
+                setColor(Color.parseColor("#1A1A1E"))
+                setStroke((1f * density).toInt(), Color.parseColor("#2E2E33"))
             }
             setPadding((10 * density).toInt(), 0, (10 * density).toInt(), 0)
         }
@@ -1147,8 +1147,8 @@ class FloatingAgentService : Service() {
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#1C1C1E"))
-                setStroke((1f * density).toInt(), Color.parseColor("#666666"))
+                setColor(Color.parseColor("#1A1A1E"))
+                setStroke((1f * density).toInt(), Color.parseColor("#2E2E33"))
             }
         }
         speakerIv = android.widget.ImageView(this).apply {
@@ -1172,11 +1172,11 @@ class FloatingAgentService : Service() {
                 }
             } else {
                 speakerIv.setImageResource(com.zhypix.R.drawable.ic_volume_off)
-                speakerIv.setColorFilter(Color.parseColor("#888888"))
+                speakerIv.setColorFilter(Color.parseColor("#A1A1AA"))
                 speakerBtn.background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(Color.parseColor("#1C1C1E"))
-                    setStroke((1f * density).toInt(), Color.parseColor("#444444"))
+                    setColor(Color.parseColor("#1A1A1E"))
+                    setStroke((1f * density).toInt(), Color.parseColor("#2E2E33"))
                 }
             }
         }
@@ -1209,8 +1209,8 @@ class FloatingAgentService : Service() {
             layoutParams = LinearLayout.LayoutParams(size, size)
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#1C1C1E"))
-                setStroke((1f * density).toInt(), Color.parseColor("#666666"))
+                setColor(Color.parseColor("#1A1A1E"))
+                setStroke((1f * density).toInt(), Color.parseColor("#2E2E33"))
             }
             setOnClickListener {
                 morphIsland(IslandMode.COLLAPSED)
@@ -1266,14 +1266,14 @@ class FloatingAgentService : Service() {
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 cornerRadius = 21f * density
-                setColor(Color.parseColor("#141414"))
-                setStroke((1f * density).toInt(), Color.parseColor("#666666"))
+                setColor(Color.parseColor("#121215"))
+                setStroke((1f * density).toInt(), Color.parseColor("#2E2E33"))
             }
         }
 
         inputEt = EditText(this).apply {
             hint = "Ask AI or run command..."
-            setHintTextColor(Color.parseColor("#94A3B8"))
+            setHintTextColor(Color.parseColor("#6E6E76"))
             setTextColor(Color.WHITE)
             textSize = 13.5f
             inputType = InputType.TYPE_CLASS_TEXT
@@ -1302,8 +1302,8 @@ class FloatingAgentService : Service() {
             }
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#1C1C1E"))
-                setStroke((1f * density).toInt(), Color.parseColor("#666666"))
+                setColor(Color.parseColor("#1A1A1E"))
+                setStroke((1f * density).toInt(), Color.parseColor("#2E2E33"))
             }
             setOnClickListener {
                 if (isListeningVoice) {
@@ -1344,8 +1344,8 @@ class FloatingAgentService : Service() {
             visibility = View.GONE
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#2C2C2E"))
-                setStroke((1f * density).toInt(), Color.WHITE)
+                setColor(Color.parseColor("#2E151A"))
+                setStroke((1f * density).toInt(), Color.parseColor("#FB7185"))
             }
             setOnClickListener {
                 AgentViewModel.instance?.stopExecution()
@@ -1358,7 +1358,7 @@ class FloatingAgentService : Service() {
                 gravity = Gravity.CENTER
             }
             setImageResource(com.zhypix.R.drawable.ic_stop)
-            setColorFilter(Color.WHITE)
+            setColorFilter(Color.parseColor("#FB7185"))
         }
         stopBtn.addView(stopIv)
         inputRow.addView(stopBtn)
@@ -1472,7 +1472,7 @@ class FloatingAgentService : Service() {
         if (messages.isEmpty()) {
             val emptyTv = TextView(this).apply {
                 text = "ยังไม่มีประวัติการสนทนา\nพิมพ์ข้อความหรือกดไมค์เพื่อเริ่มคุยกับ AI"
-                setTextColor(Color.parseColor("#64748B"))
+                setTextColor(Color.parseColor("#6E6E76"))
                 textSize = 11.5f
                 gravity = Gravity.CENTER
                 setPadding((12 * density).toInt(), (20 * density).toInt(), (12 * density).toInt(), (20 * density).toInt())
@@ -1501,7 +1501,7 @@ class FloatingAgentService : Service() {
                     val bubbleBg = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         cornerRadius = 14f * density
-                        setColor(Color.parseColor("#2563EB"))
+                        setColor(Color.parseColor("#FFFFFF"))
                     }
                     val bubbleLayout = LinearLayout(this).apply {
                         orientation = LinearLayout.VERTICAL
@@ -1516,7 +1516,7 @@ class FloatingAgentService : Service() {
                     }
                     val tv = TextView(this).apply {
                         text = msg.text
-                        setTextColor(Color.WHITE)
+                        setTextColor(Color.parseColor("#0A0A0C"))
                         textSize = 12.5f
                         maxWidth = maxBubbleWidth
                         setTextIsSelectable(true)
@@ -1529,8 +1529,8 @@ class FloatingAgentService : Service() {
                     val bubbleBg = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         cornerRadius = 14f * density
-                        setColor(Color.parseColor("#1E1E24"))
-                        setStroke((1f * density).toInt(), Color.parseColor("#33333E"))
+                        setColor(Color.parseColor("#16161A"))
+                        setStroke((1f * density).toInt(), Color.parseColor("#26262B"))
                     }
                     val bubbleLayout = LinearLayout(this).apply {
                         orientation = LinearLayout.VERTICAL
@@ -1559,11 +1559,11 @@ class FloatingAgentService : Service() {
                             rightMargin = (4 * density).toInt()
                         }
                         setImageResource(com.zhypix.R.drawable.ic_smart_toy)
-                        setColorFilter(Color.parseColor("#38BDF8"))
+                        setColorFilter(Color.parseColor("#FAFAFA"))
                     }
                     val aiLabel = TextView(this).apply {
                         text = "Zhypix AI"
-                        setTextColor(Color.parseColor("#38BDF8"))
+                        setTextColor(Color.parseColor("#FAFAFA"))
                         textSize = 10f
                         setTypeface(android.graphics.Typeface.DEFAULT_BOLD)
                     }
@@ -1572,7 +1572,7 @@ class FloatingAgentService : Service() {
 
                     val tv = TextView(this).apply {
                         text = cleanMarkdown(msg.text)
-                        setTextColor(Color.parseColor("#E2E8F0"))
+                        setTextColor(Color.parseColor("#FAFAFA"))
                         textSize = 12.5f
                         setTextIsSelectable(true)
                     }
@@ -1585,8 +1585,8 @@ class FloatingAgentService : Service() {
                     val bubbleBg = GradientDrawable().apply {
                         shape = GradientDrawable.RECTANGLE
                         cornerRadius = 10f * density
-                        setColor(Color.parseColor("#121215"))
-                        setStroke((1f * density).toInt(), Color.parseColor("#27272A"))
+                        setColor(Color.parseColor("#101013"))
+                        setStroke((1f * density).toInt(), Color.parseColor("#26262B"))
                     }
                     val bubbleLayout = LinearLayout(this).apply {
                         orientation = LinearLayout.VERTICAL
@@ -1600,14 +1600,14 @@ class FloatingAgentService : Service() {
                     val statusTv = TextView(this).apply {
                         val actionName = msg.action.actionType
                         text = "$actionName • ${msg.status}"
-                        setTextColor(Color.parseColor("#94A3B8"))
+                        setTextColor(Color.parseColor("#A1A1AA"))
                         textSize = 10.5f
                     }
                     bubbleLayout.addView(statusTv)
                     if (!msg.resultSnippet.isNullOrEmpty()) {
                         val snippetTv = TextView(this).apply {
                             text = msg.resultSnippet
-                            setTextColor(Color.parseColor("#64748B"))
+                            setTextColor(Color.parseColor("#6E6E76"))
                             textSize = 9.5f
                             setTextIsSelectable(true)
                         }
@@ -1623,7 +1623,7 @@ class FloatingAgentService : Service() {
                             is ChatMessage.ProviderConfigRequired -> msg.text
                             else -> ""
                         }
-                        setTextColor(Color.parseColor("#F59E0B"))
+                        setTextColor(Color.parseColor("#FBBF24"))
                         textSize = 10.5f
                         gravity = Gravity.CENTER
                         setPadding((6 * density).toInt(), (3 * density).toInt(), (6 * density).toInt(), (3 * density).toInt())
