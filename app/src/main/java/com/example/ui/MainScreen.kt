@@ -178,6 +178,7 @@ fun MainScreen(viewModel: AgentViewModel) {
                 TopAppBar(
                     title = { 
                         val modelNameState by viewModel.modelName.collectAsState()
+                        val fetchedModelsState by viewModel.availableModels.collectAsState()
                         val providerState by viewModel.provider.collectAsState()
                         val activeModel = if (modelNameState.isNotBlank()) modelNameState else "none"
                         Box {
@@ -228,15 +229,23 @@ fun MainScreen(viewModel: AgentViewModel) {
                                 )
                                 HorizontalDivider(color = Color(0xFF27272A))
 
-                                val currentPresetModels = when (providerState) {
-                                    "Gemini" -> listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro")
-                                    "OpenAI" -> listOf("gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "o1-preview")
-                                    "Claude" -> listOf("claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-haiku-20240307")
-                                    "Groq" -> listOf("llama-3.3-70b-versatile", "llama3-70b-8192", "mixtral-8x7b-32768")
-                                    else -> emptyList()
+                                // Models come only from the configured provider's live model list.
+                                val currentFetchedModels = fetchedModelsState.mapNotNull { it.modelId ?: it.id }.distinct()
+
+                                if (currentFetchedModels.isEmpty()) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                "No models loaded - tap to fetch from provider",
+                                                color = Color(0xFFA1A1AA),
+                                                fontSize = 13.sp
+                                            )
+                                        },
+                                        onClick = { viewModel.fetchModels() }
+                                    )
                                 }
 
-                                currentPresetModels.forEach { model ->
+                                currentFetchedModels.forEach { model ->
                                     DropdownMenuItem(
                                         text = {
                                             Row(
