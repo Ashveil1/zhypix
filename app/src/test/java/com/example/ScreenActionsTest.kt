@@ -77,9 +77,15 @@ class ScreenActionsTest {
     }
 
     @Test
-    fun proseAroundActionUsesLastMatchingLine() {
-        val a = ok("I will tap the save button now.\nclick({\"x\":100,\"y\":200})")
-        assertEquals(ScreenAction.Click(100, 200), a)
+    fun proseAroundActionIsRejected() {
+        assertEquals(ActionParseResult.NotAnAction, ActionParser.parse("I will tap.\nclick({\"x\":100,\"y\":200})"))
+    }
+
+    @Test
+    fun nonFiniteAndNegativeCoordinatesAreRejected() {
+        assertTrue(ActionParser.parse("""click({"x":"NaN","y":2})""") is ActionParseResult.Invalid)
+        assertTrue(ActionParser.parse("""click({"x":-1,"y":2})""") is ActionParseResult.Invalid)
+        assertTrue(ActionParser.parse("""wait({"seconds":-1})""") is ActionParseResult.Invalid)
     }
 
     @Test

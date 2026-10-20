@@ -90,8 +90,7 @@ object ActionParser {
     private val ACTION_PATTERN = Regex("""^(\w+)\(([\s\S]*)\)$""")
 
     /**
-     * Parse the model's reply. The action call should be the whole reply; if the
-     * model added prose around it, the last fully-matching line wins.
+     * Parse exactly one action. Prose or extra calls are rejected, never silently skipped.
      */
     fun parse(reply: String): ActionParseResult {
         val trimmed = reply.trim()
@@ -99,12 +98,6 @@ object ActionParser {
 
         ACTION_PATTERN.matchEntire(trimmed)?.let { return interpret(it) }
 
-        val lines = trimmed.lines()
-        for (i in lines.indices.reversed()) {
-            val line = lines[i].trim()
-            val m = ACTION_PATTERN.matchEntire(line) ?: continue
-            return interpret(m)
-        }
         return ActionParseResult.NotAnAction
     }
 
