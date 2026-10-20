@@ -1297,10 +1297,6 @@ fun SettingsScreen(
     val isFetchingModels by viewModel.isFetchingModels.collectAsState()
     val thinkingLevel by viewModel.thinkingLevel.collectAsState()
     val visionMode by viewModel.visionMode.collectAsState()
-    val liveStreamEnabled by viewModel.liveStreamEnabled.collectAsState()
-    val screenshotInterval by viewModel.screenshotInterval.collectAsState()
-    val screenshotQuality by viewModel.screenshotQuality.collectAsState()
-    val screenshotScale by viewModel.screenshotScale.collectAsState()
     
     val scope = rememberCoroutineScope()
     var showSaved by remember { mutableStateOf(false) }
