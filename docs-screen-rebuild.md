@@ -40,4 +40,11 @@ Working core: parser and terminal taxonomy; fresh-observation loop; cancellation
 
 Safety differences: password fields are handed to the user; clipboard is never used for a text fallback; uncertain gestures are not blindly retried. Confirmation is required before sensitive effects.
 
-Not yet claimed as complete: live voice tool bridge, guides recording, routines/schedules, needs-you persistence, memory recall/delete, notification listener, background virtual display, remote control. Remote control would require a separate trusted backend and is not implemented. Billing and AGI account gating are not used.
+Landed since (unit tested in JVM CI; not exercised live on a device):
+- Memory: remember, keyword recall, hard delete (`recall_memory`, `forget_memory` tools). JSON file store, separate from Room.
+- Needs-you: tasks that stop for confirmation/login/captcha are saved and survive restart. No UI lists them yet.
+- Routines: interval (min 15 min) or daily schedules, saved with `schedule_routine`/`list_routines`/`delete_routine`. A minute ticker in the app process runs one due routine at a time. They only run while the app process is alive and accessibility is enabled. There is no background alarm, so a killed app misses runs (at most one catch-up run later).
+
+Verified live on an emulator with a free model (not a physical phone): single and two-level Settings navigation, and retry after a swallowed tap. The app's own gesture adapter has not been exercised end to end.
+
+Not yet claimed as complete: live voice tool bridge on a device, guides recording, notification listener, background virtual display, remote control. Remote control would require a separate trusted backend and is not implemented. Billing and AGI account gating are not used.
