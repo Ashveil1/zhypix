@@ -1,0 +1,84 @@
+name: Manual live-model emulator test
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Free vision model ID, test configuration only
+        default: minimax/minimax-m3.1-flash:free
+        required: true
+permissions:
+  contents: read
+jobs:
+  live-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
+      - name: Prepare build
+        run: |
+          test -n "$OPENROUTER_KEY" || { echo 'Missing OPENROUTER_E2E_KEY secret'; exit 1; }
+          keytool -genkeypair -keyalg RSA -keysize 2048 -validity 10000 -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -dname 'CN=Android Debug,O=Android,C=US'
+          printf 'GEMINI_API_KEY=placeholder\n' > .env
+          python3 - <<'PY'
+          import os,json,urllib.request
+          model=os.environ['TEST_MODEL']
+          catalog=json.load(urllib.request.urlopen('https://openrouter.ai/api/v1/models'))['data']
+          match=next((m for m in catalog if m['id']==model),None)
+          assert match and float(match['pricing']['prompt'])==0 and float(match['pricing']['completion'])==0, 'Model missing or not free; refusing to substitute or spend'
+          assert 'image' in match['architecture']['input_modalities'], 'Model must support image input'
+          with open('/tmp/live-model-test.json','w') as f:json.dump({'key':os.environ['OPENROUTER_KEY'],'base':'https://openrouter.ai/api/v1','model':model},f)
+          os.chmod('/tmp/live-model-test.json',0o600)
+          print('Verified free vision model:',model)
+          PY
+        env:
+          OPENROUTER_KEY: ${{ secrets.OPENROUTER_E2E_KEY }}
+          TEST_MODEL: ${{ inputs.model }}
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+      - name: Run bounded live model task
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: default
+          disable-animations: true
+          script: |
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb push /tmp/live-model-test.json /data/local/tmp/live-model-test.json
+            adb shell run-as com.zhypix.app.jdufyx mkdir -p files
+            adb shell run-as com.zhypix.app.jdufyx cp /data/local/tmp/live-model-test.json files/live-model-test.json
+            adb shell rm /data/local/tmp/live-model-test.json
+            rm -f /tmp/live-model-test.json
+            adb shell am instrument -w -e class com.example.LiveModelE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee live-model-result.txt
+            adb exec-out run-as com.zhypix.app.jdufyx cat files/live-model-evidence.txt > live-model-evidence.txt || true
+            adb exec-out run-as com.zhypix.app.jdufyx cat files/live-model-final.xml > live-model-final.xml || true
+            adb shell screencap -p /sdcard/live-model-final.png
+            adb pull /sdcard/live-model-final.png live-model-final.png
+            grep -q 'OK (1 test)' live-model-result.txt
+      - name: Upload non-secret evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-model-evidence
+          path: |
+            live-model-result.txt
+            live-model-evidence.txt
+            live-model-final.xml
+            live-model-final.png
+          retention-days: 7
+      - name: Remove private config
+        if: always()
+        run: rm -f /tmp/live-model-test.json
