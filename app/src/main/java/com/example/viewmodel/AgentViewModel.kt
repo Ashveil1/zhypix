@@ -19,7 +19,6 @@ import com.example.db.AppDatabase
 import com.example.db.UserPreference
 import com.example.db.ChatSession
 import com.example.db.ChatMessageEntity
-import com.example.service.ReadyGate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
