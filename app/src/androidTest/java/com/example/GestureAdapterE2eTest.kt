@@ -53,7 +53,9 @@ class GestureAdapterE2eTest {
     @Test fun serviceTapsSwipesAndGoesBackOnRealSettings() = runBlocking {
         val service = bindService()
         ctx.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-        val row = waitFor("Network & internet") ?: fail("Settings home not visible").let { return@runBlocking }
+        waitFor("Network & internet") ?: fail("Settings home not visible").let { return@runBlocking }
+        Thread.sleep(2500) // let the launch transition finish; a tap during it hits no window
+        val row = find("Network & internet") ?: fail("Settings row vanished").let { return@runBlocking }
         val log = StringBuilder()
 
         // 1. Tap through the app's own adapter.
