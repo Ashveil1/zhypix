@@ -22,6 +22,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
     companion object {
         var instance: ZhypixAccessibilityService? = null
             private set
+
     }
 
     private var lastScreenshotBase64: String? = null
@@ -369,26 +370,28 @@ class ZhypixAccessibilityService : AccessibilityService() {
 
     private fun traverseNode(node: AccessibilityNodeInfo?, builder: StringBuilder, depth: Int) {
         if (node == null) return
-        
+
         val indent = "  ".repeat(depth)
         val text = node.text?.toString() ?: ""
         val contentDesc = node.contentDescription?.toString() ?: ""
         val className = node.className?.toString()?.substringAfterLast('.') ?: "View"
-        
+
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
-        
+
         val isClickable = node.isClickable
         val isScrollable = node.isScrollable
         val isFocused = node.isFocused
+        // Skip invisible nodes: they carry no value for the agent's perception.
+        val isVisible = try { node.isVisibleToUser } catch (e: Exception) { true }
 
-        if (text.isNotEmpty() || contentDesc.isNotEmpty() || isClickable || isScrollable || isFocused) {
+        if (isVisible && (text.isNotEmpty() || contentDesc.isNotEmpty() || isClickable || isScrollable || isFocused)) {
             if (bounds.width() > 0 && bounds.height() > 0) {
                 val centerX = bounds.centerX()
                 val centerY = bounds.centerY()
                 builder.append(indent)
                     .append("[$className] ")
-                
+
                 if (text.isNotEmpty()) builder.append("Text=\"$text\" ")
                 if (contentDesc.isNotEmpty()) builder.append("Desc=\"$contentDesc\" ")
                 builder.append("Bounds=(${bounds.left},${bounds.top})->(${bounds.right},${bounds.bottom}) ")
@@ -396,7 +399,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
                 if (isClickable) builder.append("Clickable ")
                 if (isScrollable) builder.append("Scrollable ")
                 if (isFocused) builder.append("Focused ")
-                
+
                 builder.append("\n")
             }
         }

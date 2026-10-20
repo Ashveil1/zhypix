@@ -1008,11 +1008,16 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     // Hold API conversation history
     private val conversationHistory = mutableListOf<Content>()
 
+    // Short rolling log of executed steps; older steps collapse into this log so
+    // old screen trees and tool responses can be pruned from history.
+    private val runningActionLog = com.example.utils.RunningActionLog()
+
     fun startNewSession() {
         currentSessionId = null
         currentSessionIdFlow.value = null
         _messages.value = emptyList()
         conversationHistory.clear()
+        runningActionLog.clear()
         _actionHistory.value = emptyList()
         _currentTokens.value = 0
         _isProcessing.value = false
@@ -1168,6 +1173,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 
                 _messages.value = newMsgs
                 conversationHistory.clear()
+                runningActionLog.clear()
                 conversationHistory.addAll(newHistory)
                 _actionHistory.value = emptyList()
                 
@@ -1797,6 +1803,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 pruneOldImagesFromHistory(1)
+                com.example.utils.ContextBudget.pruneOldHierarchies(conversationHistory, 1)
 
                 val requestContents = if (isVisionActive) {
                     conversationHistory.toList()
@@ -2595,6 +2602,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         _messages.value = _messages.value + ChatMessage.TaskExecution(actionObj, "Sending Intent...")
 
                         val outcome = executeAndroidIntent(action, dataUri, mimeType, packageName, extras)
+                        runningActionLog.add("INTENT", action, outcome.first, outcome.second)
                         
                         val currentMsgs = _messages.value.toMutableList()
                         val lastIdx = currentMsgs.indexOfLast { it is ChatMessage.TaskExecution && it.action.actionType == "INTENT" && it.action.target == action }
@@ -2974,7 +2982,9 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             if (isVisionActive()) {
                                 responseParts.add(Part(inlineData = com.example.api.InlineData("image/jpeg", base64Img)))
                             }
-                            responseParts.add(Part(text = "Updated screen state after executing $act on '$tgt' (Result: ${if (actionResult.success) "Success" else "Failed"})$loopNotice:"))
+                            runningActionLog.add(act, tgt, actionResult.success)
+                        val recentSteps = runningActionLog.render()
+                        responseParts.add(Part(text = "Updated screen state after executing $act on '$tgt' (Result: ${if (actionResult.success) "Success" else "Failed"})$loopNotice:\nRecent steps so far:\n$recentSteps"))
                         }
                         responseParts.add(Part(functionResponse = FunctionResponse(
                             name = call.name,
@@ -3069,22 +3079,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun getEstimatedTokenCount(): Int {
-        var tokens = 0
-        for (content in conversationHistory) {
-            for (part in content.parts) {
-                part.text?.let { tokens += it.length / 4 }
-                part.functionCall?.let { 
-                    tokens += (it.name.length) / 4 
-                    if (it.args != null) {
-                        tokens += it.args.toString().length / 4
-                    }
-                }
-                part.inlineData?.let { tokens += 258 } 
-            }
-        }
-        return tokens
-    }
+    private fun getEstimatedTokenCount(): Int =
+        com.example.utils.ContextBudget.estimateHistoryTokens(conversationHistory)
 
     private fun getFallbackMaxTokens(callModel: String): Int {
         // Look up the selected model in availableModels to check for its dynamically fetched context limit
@@ -3123,7 +3119,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         _currentTokens.value = estimatedTokens
         _maxTokens.value = maxTokens
         
-        val threshold = (maxTokens * 0.8).toInt()
+        val threshold = (maxTokens * com.example.utils.ContextBudget.SUMMARIZE_FRACTION).toInt()
 
         if (estimatedTokens > threshold || conversationHistory.size > 2000) { // Keep a very generous upper bound of 2000 messages just in case
             try {
