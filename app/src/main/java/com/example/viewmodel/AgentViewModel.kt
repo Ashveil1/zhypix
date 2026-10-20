@@ -37,6 +37,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         var instance: AgentViewModel? = null
             private set
+
+        /** Hard cap of executed actions per user turn - runaway-loop guard. */
+        private const val MAX_ACTIONS_PER_TURN = 30
+        /** Consecutive no-state-change repeats of the same action before a hard stop. */
+        private const val STUCK_ACTION_ABORT_THRESHOLD = 4
     }
 
     init {
@@ -201,6 +206,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     private var autoContinueCount = 0
     private var fallbackRetryCount = 0
     private var actionsExecutedInCurrentTurn = 0
+    private var turnAbortRequested = false
 
     private var lastActionTime: Long = System.currentTimeMillis()
     private var watchdogJob: kotlinx.coroutines.Job? = null
@@ -2852,13 +2858,27 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                     "message" to "This action looks sensitive (sending, paying, or confirming). It is held until the user explicitly confirms. Do not retry it now."
                                 )
                             )))
+                        } else if (actionsExecutedInCurrentTurn >= MAX_ACTIONS_PER_TURN) {
+                            // Runaway-loop guard: stop the turn instead of letting a
+                            // confused model act forever.
+                            addReasoningStep("Action limit reached", "Hit the per-turn cap of $MAX_ACTIONS_PER_TURN actions. Stopping the turn.", "WARNING", "SYSTEM")
+                            _messages.value += ChatMessage.System("Stopped after $MAX_ACTIONS_PER_TURN actions in one go - the agent may be stuck. Tell me what to adjust and I will continue.")
+                            responseParts.add(Part(functionResponse = FunctionResponse(
+                                name = call.name,
+                                response = mapOf(
+                                    "status" to "aborted_action_limit",
+                                    "message" to "Per-turn action limit ($MAX_ACTIONS_PER_TURN) reached. The turn is stopped. Do not emit further actions."
+                                )
+                            )))
+                            turnAbortRequested = true
                         } else {
                         if (sensitiveActionApproved) sensitiveActionApproved = false
 
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = true
                         }
-                        recordActionExecuted()
+                        // counted once at dispatch (see below); watchdog timer reset only
+                        lastActionTime = System.currentTimeMillis()
 
                         val actionObj = AgentAction(act, tgt)
                         _activeAction.value = actionObj
@@ -2877,11 +2897,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         
                         val actionOutcome = com.example.agent.ActionExecutor.execute(service, act, tgt, getApplication<android.app.Application>())
                         val actionResult = actionOutcome.result
-                        
+                        recordActionExecuted()
+
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = false
                         }
-                        recordActionExecuted()
                         
                         if (actionResult.success) {
                             addReasoningStep("Action simulation completed", "Action: $act. Service message outcome: ${actionResult.message}", "SUCCESS", "TOOL")
@@ -2965,7 +2985,12 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
                         if (currentHash != 0 && currentHash == lastHierarchyHash && currentActionSig == lastExecutedActionSig) {
                             sameStateActionCount++
-                            if (sameStateActionCount >= 2 && loopNotice.isEmpty()) {
+                            if (sameStateActionCount >= STUCK_ACTION_ABORT_THRESHOLD) {
+                                addReasoningStep("Stuck action abort", "Same action '$act' on '$tgt' repeated $sameStateActionCount times with no screen change. Stopping the turn.", "FAILED", "SYSTEM")
+                                _messages.value += ChatMessage.System("I keep repeating $act on '$tgt' with no effect, so I stopped. Please guide me or rephrase the task.")
+                                loopNotice = "\n[STUCK_ABORT]: This exact action produced no screen change $sameStateActionCount times. The turn is stopping. Do not retry it."
+                                turnAbortRequested = true
+                            } else if (sameStateActionCount >= 2 && loopNotice.isEmpty()) {
                                 loopNotice = "\n[STATE_DIFF_ALERT]: Screen layout did NOT change after executing $act on '$tgt' ($sameStateActionCount times in a row). The element may be unclickable, disabled, or obscured. Do NOT repeat this exact action. Try scrolling, typing, or an alternative element."
                                 addReasoningStep("Loop Detected", "Screen state unchanged after $act on '$tgt' x$sameStateActionCount.", "WARNING", "SYSTEM")
                             }
@@ -3024,16 +3049,19 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 ))
             }
 
-            if (touchPauseRequested || pendingSensitiveActionDesc != null) {
+            if (touchPauseRequested || pendingSensitiveActionDesc != null || turnAbortRequested) {
+                val wasAbort = turnAbortRequested
+                turnAbortRequested = false
                 touchPauseRequested = false
                 _isProcessing.value = false
                 _agentState.value = AgentState.IDLE
                 _activeAction.value = null
                         stopInactivityWatchdog()
-                val pauseReason = if (pendingSensitiveActionDesc != null)
-                    "Waiting for your confirmation of a sensitive action."
-                else
-                    "Paused because the user touched the screen. Say anything to continue."
+                val pauseReason = when {
+                    wasAbort -> "Stopped by a safety guard (action limit or stuck detection). Say anything to continue."
+                    pendingSensitiveActionDesc != null -> "Waiting for your confirmation of a sensitive action."
+                    else -> "Paused because the user touched the screen. Say anything to continue."
+                }
                 addReasoningStep("Agent paused", pauseReason, "WARNING", "SYSTEM")
             } else {
                 _agentState.value = AgentState.THINKING
