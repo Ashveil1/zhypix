@@ -15,7 +15,7 @@ class ScreenLoop(
 ) {
     data class Observation(val image: String?, val phoneState: String, val metadata: String)
     data class Execution(val success: Boolean, val message: String, val safeToRetry: Boolean = false)
-    companion object { private val mutex = Mutex() }
+    private val mutex get() = ScreenSessionGate.mutex
 
     suspend fun run(maxSteps: Int = ScreenPolicy.MAX_STEPS, postActionMs: Long = ScreenPolicy.DEFAULT_POST_ACTION_MS): ScreenAction.Terminal {
         require(maxSteps in 1..ScreenPolicy.MAX_STEPS)
@@ -60,3 +60,6 @@ class ScreenLoop(
         catch (error: Exception) { sleep(ScreenPolicy.STAGE_RETRY_MS); return block() }
     }
 }
+
+/** Shared by REST tasks and Live actions to prevent overlapping dispatch. */
+object ScreenSessionGate { val mutex = Mutex() }

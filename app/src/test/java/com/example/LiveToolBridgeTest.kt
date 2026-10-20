@@ -26,12 +26,29 @@ class LiveToolBridgeTest {
     LiveSessionManager.ToolCallRequest(id = "id1", name = name, args = args)
 
   @Test
-  fun `screen tools are unavailable during clean rebuild`() = runTest {
-    val b = bridge()
-    assertEquals(0, b.toolsPayload().length())
-    val response = b.execute(call("computer_use_action", JSONObject()))
-    assertEquals("error", response.getString("status"))
-    assertTrue(response.getString("message").contains("being rebuilt"))
+  fun `new action tool is declared`() {
+    val declaration=bridge().toolsPayload().getJSONObject(0).getJSONArray("functionDeclarations").getJSONObject(0)
+    assertEquals("screen_action",declaration.getString("name"))
+  }
+
+  @Test
+  fun `legacy screen tool is rejected`() = runTest {
+    val response=bridge().execute(call("computer_use_action",JSONObject()))
+    assertEquals("error",response.getString("status"))
+  }
+
+  @Test
+  fun `new action requires accessibility service`() = runTest {
+    val response=bridge().execute(call("screen_action",JSONObject().put("action","press_home({})")))
+    assertEquals("error",response.getString("status"))
+    assertTrue(response.getString("message").contains("accessibility"))
+  }
+
+  @Test
+  fun `invalid action is rejected before dispatch`() = runTest {
+    val response=bridge().execute(call("screen_action",JSONObject().put("action","invalid")))
+    assertEquals("error",response.getString("status"))
+    assertTrue(response.getString("message").contains("Invalid action"))
   }
 
   @Test
