@@ -91,10 +91,40 @@ object ActionParser {
     private val ACTION_PATTERN = Regex("""^(\w+)\(([\s\S]*)\)$""")
 
     /**
+     * Models often wrap the one action in code fences or emit it as a JSON object instead of name({...}).
+     * Accept those two single-action shapes only; anything with prose or several actions stays rejected.
+     */
+    internal fun normalize(reply: String): String {
+        var t = reply.trim().replace(Regex("(?s)<think>.*?</think>"), "").trim()
+        Regex("(?s)^```[a-zA-Z]*\\s*(.*?)\\s*```$").matchEntire(t)?.let { t = it.groupValues[1].trim() }
+        if (!t.startsWith("{")) return t
+        return try {
+            val tokener = JSONTokener(t)
+            val obj = tokener.nextValue() as? JSONObject ?: return t
+            if (tokener.nextClean() != '\u0000') return t
+            val named = obj.optString("name", obj.optString("action", obj.optString("tool", "")))
+            when {
+                named.isNotEmpty() -> {
+                    val args = obj.optJSONObject("args") ?: obj.optJSONObject("arguments") ?: JSONObject(obj.toString()).also {
+                        it.remove("name"); it.remove("action"); it.remove("tool")
+                    }
+                    "$named($args)"
+                }
+                obj.length() == 1 -> {
+                    val key = obj.keys().next()
+                    val v = obj.opt(key)
+                    if (v is JSONObject) "$key($v)" else t
+                }
+                else -> t
+            }
+        } catch (e: Exception) { t }
+    }
+
+    /**
      * Parse exactly one action. Prose or extra calls are rejected, never silently skipped.
      */
     fun parse(reply: String): ActionParseResult {
-        val trimmed = reply.trim()
+        val trimmed = normalize(reply)
         if (trimmed.isEmpty()) return ActionParseResult.NotAnAction
 
         ACTION_PATTERN.matchEntire(trimmed)?.let { return interpret(it) }

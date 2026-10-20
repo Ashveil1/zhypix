@@ -116,3 +116,22 @@ press_home({})""") is ActionParseResult.Invalid)
         assertTrue(r is ActionParseResult.Invalid)
     }
 }
+
+class ScreenActionsNormalizeTest {
+    @org.junit.Test fun acceptsNameKeyedObject() {
+        val r = com.example.agent.ActionParser.parse("""{"name":"click","x":155,"y":303}""")
+        org.junit.Assert.assertTrue(r is com.example.agent.ActionParseResult.Ok)
+    }
+    @org.junit.Test fun acceptsActionKeyedObject() {
+        val r = com.example.agent.ActionParser.parse("""{"click":{"x":155,"y":303}}""")
+        org.junit.Assert.assertTrue(r is com.example.agent.ActionParseResult.Ok)
+    }
+    @org.junit.Test fun acceptsFencedAction() {
+        val r = com.example.agent.ActionParser.parse("```\nclick({\"x\":1,\"y\":2})\n```")
+        org.junit.Assert.assertTrue(r is com.example.agent.ActionParseResult.Ok)
+    }
+    @org.junit.Test fun stillRejectsProseAndMultipleCalls() {
+        org.junit.Assert.assertFalse(com.example.agent.ActionParser.parse("I will click({\"x\":1,\"y\":2})") is com.example.agent.ActionParseResult.Ok)
+        org.junit.Assert.assertFalse(com.example.agent.ActionParser.parse("click({\"x\":1,\"y\":2})\nclick({\"x\":3,\"y\":4})") is com.example.agent.ActionParseResult.Ok)
+    }
+}
