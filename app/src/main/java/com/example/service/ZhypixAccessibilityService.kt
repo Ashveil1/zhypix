@@ -340,6 +340,66 @@ class ZhypixAccessibilityService : AccessibilityService() {
         return dispatchGestureAndAwait(builder, tx, ty)
     }
 
+    /** True when a screen reader with touch exploration (e.g. TalkBack) is active. */
+    fun isTouchExplorationActive(): Boolean {
+        return try {
+            val am = getSystemService(ACCESSIBILITY_SERVICE) as? android.view.accessibility.AccessibilityManager
+            am != null && am.isEnabled && am.isTouchExplorationEnabled
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Activate an element while a screen reader's touch exploration is on:
+     * the first tap only moves accessibility focus, so activation needs a
+     * focus tap followed by a double-tap (three taps total).
+     */
+    suspend fun dispatchTalkBackActivate(x: Float, y: Float, bounds: Rect? = null): Boolean {
+        lastAgentGestureTime = System.currentTimeMillis()
+        invalidateScreenshotCache()
+        FloatingAgentService.instance?.getOverlayBoundsOnScreen()?.let { r ->
+            if (r.contains(x.toInt(), y.toInt())) {
+                Log.w("Zhypix", "Skipping TalkBack activate at ($x, $y): inside zhypix's own overlay")
+                return false
+            }
+        }
+        val (tx, ty) = BezierGestureSynthesizer.applyHumanClickJitter(x, y, bounds)
+        val path = Path()
+        path.moveTo(tx, ty)
+        path.lineTo(tx + 1.0f, ty + 1.0f)
+        val builder = GestureDescription.Builder()
+        builder.addStroke(GestureDescription.StrokeDescription(path, 0, 30))
+        builder.addStroke(GestureDescription.StrokeDescription(path, 150, 30))
+        builder.addStroke(GestureDescription.StrokeDescription(path, 190, 30))
+        return dispatchGestureAndAwait(builder, tx, ty)
+    }
+
+    /** Long-press at the start point, then drag to the end point and release. */
+    suspend fun dispatchDragAndDrop(x1: Float, y1: Float, x2: Float, y2: Float): Boolean {
+        lastAgentGestureTime = System.currentTimeMillis()
+        invalidateScreenshotCache()
+        FloatingAgentService.instance?.getOverlayBoundsOnScreen()?.let { r ->
+            if (r.contains(x1.toInt(), y1.toInt()) || r.contains(x2.toInt(), y2.toInt())) {
+                Log.w("Zhypix", "Skipping drag-and-drop: an endpoint is inside zhypix's own overlay")
+                return false
+            }
+        }
+        val holdMs = android.view.ViewConfiguration.getLongPressTimeout().toLong() + 100L
+        val pressPath = Path()
+        pressPath.moveTo(x1, y1)
+        pressPath.lineTo(x1 + 1.0f, y1 + 1.0f)
+        val dragPath = Path()
+        dragPath.moveTo(x1, y1)
+        // Midpoint for a less mechanical straight jump
+        dragPath.lineTo((x1 + x2) / 2f, (y1 + y2) / 2f)
+        dragPath.lineTo(x2, y2)
+        val pressStroke = GestureDescription.StrokeDescription(pressPath, 0, holdMs, true)
+        val builder = GestureDescription.Builder()
+        builder.addStroke(pressStroke.continueStroke(dragPath, 0, 600, false))
+        return dispatchGestureAndAwait(builder, x2, y2)
+    }
+
     suspend fun dispatchSwipe(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long = 180): Boolean {
         lastAgentGestureTime = System.currentTimeMillis()
         invalidateScreenshotCache()
@@ -685,7 +745,11 @@ class ZhypixAccessibilityService : AccessibilityService() {
                     }
 
                     if (!acted) {
-                        acted = dispatchClick(cx, cy, resolved.bounds)
+                        acted = if (isTouchExplorationActive()) {
+                            dispatchTalkBackActivate(cx, cy, resolved.bounds)
+                        } else {
+                            dispatchClick(cx, cy, resolved.bounds)
+                        }
                     } else {
                         visualizerView?.showClickFeedback(cx, cy)
                     }
@@ -720,7 +784,13 @@ class ZhypixAccessibilityService : AccessibilityService() {
                     }
                 }
                 SmartGesture.DOUBLE_CLICK -> {
-                    acted = dispatchDoubleClick(cx, cy, resolved.bounds)
+                    // Screen readers reject double-tap as an activation gesture;
+                    // use the focus-then-activate sequence instead.
+                    acted = if (isTouchExplorationActive()) {
+                        dispatchTalkBackActivate(cx, cy, resolved.bounds)
+                    } else {
+                        dispatchDoubleClick(cx, cy, resolved.bounds)
+                    }
                 }
             }
 
@@ -738,10 +808,12 @@ class ZhypixAccessibilityService : AccessibilityService() {
         if (selector.x != null && selector.y != null) {
             val fx = selector.x.toFloat()
             val fy = selector.y.toFloat()
-            val ok = when (mode) {
-                SmartGesture.CLICK -> dispatchClick(fx, fy)
-                SmartGesture.DOUBLE_CLICK -> dispatchDoubleClick(fx, fy)
-                SmartGesture.LONG_PRESS -> dispatchLongPress(fx, fy)
+            val talkBack = mode != SmartGesture.LONG_PRESS && isTouchExplorationActive()
+            val ok = when {
+                talkBack -> dispatchTalkBackActivate(fx, fy)
+                mode == SmartGesture.CLICK -> dispatchClick(fx, fy)
+                mode == SmartGesture.DOUBLE_CLICK -> dispatchDoubleClick(fx, fy)
+                else -> dispatchLongPress(fx, fy)
             }
             val rawName = when (mode) {
                 SmartGesture.CLICK -> "click"

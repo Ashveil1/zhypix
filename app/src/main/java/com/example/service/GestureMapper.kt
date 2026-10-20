@@ -93,6 +93,26 @@ object GestureMapper {
                     "LONG_PRESS", "LONG_CLICK", "PRESS_AND_HOLD" -> {
                         return service.longPressSmart(target)
                     }
+                    "DRAG_AND_DROP", "DRAG_DROP", "DRAG" -> {
+                        val displayMetrics = service.resources.displayMetrics
+                        val screenW = displayMetrics.widthPixels.toFloat()
+                        val screenH = displayMetrics.heightPixels.toFloat()
+                        val nums = Regex("""[-+]?[0-9]*\.?[0-9]+""").findAll(target).mapNotNull { it.value.toFloatOrNull() }.toList()
+                        if (nums.size >= 4) {
+                            var sx = nums[0]; var sy = nums[1]; var ex = nums[2]; var ey = nums[3]
+                            if (sx <= 1.0f && sy <= 1.0f && ex <= 1.0f && ey <= 1.0f &&
+                                (sx > 0f || sy > 0f || ex > 0f || ey > 0f)) {
+                                sx *= screenW; sy *= screenH; ex *= screenW; ey *= screenH
+                            }
+                            val ok = service.dispatchDragAndDrop(sx, sy, ex, ey)
+                            return if (ok) {
+                                ActionResult(true, "Drag-and-drop from ($sx, $sy) to ($ex, $ey) dispatched.")
+                            } else {
+                                ActionResult(false, "Failed to dispatch drag-and-drop gesture.")
+                            }
+                        }
+                        return ActionResult(false, "DRAG_AND_DROP needs coordinates: target = "x1,y1 -> x2,y2"")
+                    }
                     "SWIPE", "SCROLL" -> {
                         val cleanTarget = target.uppercase().trim()
                         val displayMetrics = service.resources.displayMetrics
