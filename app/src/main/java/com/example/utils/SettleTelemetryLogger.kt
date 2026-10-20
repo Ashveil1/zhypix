@@ -133,8 +133,19 @@ object SettleTelemetryLogger {
     /**
      * Appends a log line to persistent file storage.
      */
+    private val fileIoExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     private fun appendToFile(context: Context?, line: String) {
         if (context == null) return
+        val appContext = context.applicationContext
+        // File writes used to run on the caller thread (sometimes the main
+        // thread during frame-settle checks); queue them instead.
+        fileIoExecutor.execute {
+            appendToFileSync(appContext, line)
+        }
+    }
+
+    private fun appendToFileSync(context: android.content.Context, line: String) {
         try {
             val file = File(context.filesDir, FILE_NAME)
             if (file.exists() && file.length() > MAX_FILE_SIZE_BYTES) {
