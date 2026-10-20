@@ -120,8 +120,8 @@ jobs:
             adb logcat -d > logcat.txt || true
             adb shell dumpsys activity services com.zhypix.app.jdufyx > dumpsys_activity_services.txt || true
             adb shell dumpsys accessibility > dumpsys_accessibility_after.txt || true
-            adb pull /data/local/tmp/e2e_window_search.xml e2e_window_search.xml || true
-            adb pull /data/local/tmp/e2e_window_settings.xml e2e_window_settings.xml || true
+            adb exec-out run-as com.zhypix.app.jdufyx cat files/e2e_window_search.xml > e2e_window_search.xml || true
+            adb exec-out run-as com.zhypix.app.jdufyx cat files/e2e_window_settings.xml > e2e_window_settings.xml || true
             adb shell run-as com.zhypix.app.jdufyx cat files/agent_diagnostics.jsonl > agent_diagnostics.jsonl || true
             adb shell screencap -p /sdcard/e2e_final.png || true
             adb pull /sdcard/e2e_final.png e2e_final.png || true

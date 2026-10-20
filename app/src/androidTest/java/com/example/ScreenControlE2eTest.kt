@@ -60,6 +60,22 @@ class ScreenControlE2eTest {
         return null
     }
 
+    private fun dumpHierarchy(name: String) {
+        try {
+            val f = java.io.File(context.filesDir, name)
+            val pfd = android.os.ParcelFileDescriptor.open(
+                f,
+                android.os.ParcelFileDescriptor.MODE_WRITE_ONLY or
+                    android.os.ParcelFileDescriptor.MODE_CREATE or
+                    android.os.ParcelFileDescriptor.MODE_TRUNCATE
+            )
+            device.dumpWindowHierarchy(pfd)
+            pfd.close()
+        } catch (e: Exception) {
+            android.util.Log.e("E2E-DIAG", "dumpHierarchy($name) failed", e)
+        }
+    }
+
     private fun openSettings() {
         val intent = Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
@@ -145,14 +161,12 @@ class ScreenControlE2eTest {
         openSettings()
         // Probe run: always dump the Settings homepage hierarchy so CI shows
         // exactly which search affordance this API level exposes.
-        try { device.dumpWindowHierarchy("/data/local/tmp/e2e_window_settings.xml") } catch (e: Exception) {
-            android.util.Log.e("E2E-DIAG", "dump failed", e)
-        }
+        dumpHierarchy("e2e_window_settings.xml")
         val searchAction = device.wait(Until.findObject(By.desc("Search")), 4_000)
             ?: device.findObject(By.textContains("Search"))
         if (searchAction != null) searchAction.click()
         Thread.sleep(1500)
-        try { device.dumpWindowHierarchy("/data/local/tmp/e2e_window_search.xml") } catch (e: Exception) {}
+        dumpHierarchy("e2e_window_search.xml")
         var field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 6_000)
         if (field == null) {
             field = device.wait(Until.findObject(By.clazz("android.widget.AutoCompleteTextView")), 3_000)
