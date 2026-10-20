@@ -3178,7 +3178,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         if (upperAction.contains("VOLUME") || upperAction.contains("MUTE")) {
             try {
                 val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-                return if (upperAction.contains("UP")) {
+                return if (upperAction.contains("UNMUTE")) {
+                    // Check UNMUTE before MUTE: "UNMUTE" also contains "MUTE".
+                    audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_UNMUTE, android.media.AudioManager.FLAG_SHOW_UI)
+                    Pair(true, "Unmuted media volume")
+                } else if (upperAction.contains("UP")) {
                     audioManager.adjustStreamVolume(android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.ADJUST_RAISE, android.media.AudioManager.FLAG_SHOW_UI)
                     Pair(true, "Increased media volume")
                 } else if (upperAction.contains("DOWN")) {
@@ -3291,7 +3295,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                 when (first) {
                                     is Int -> putIntegerArrayListExtra(normKey, ArrayList(value.filterIsInstance<Int>()))
                                     is Double -> {
-                                        val intList = value.map { (it as Double).toInt() }
+                                        // Mixed-type lists must not crash: coerce only numeric entries.
+                                        val intList = value.mapNotNull { (it as? Number)?.toInt() }
                                         putIntegerArrayListExtra(normKey, ArrayList(intList))
                                     }
                                     is String -> putStringArrayListExtra(normKey, ArrayList(value.filterIsInstance<String>()))
