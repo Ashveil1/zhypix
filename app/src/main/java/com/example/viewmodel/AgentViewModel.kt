@@ -20,6 +20,8 @@ import com.example.db.UserPreference
 import com.example.db.ChatSession
 import com.example.db.ChatMessageEntity
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
