@@ -97,7 +97,7 @@ private fun stateLabel(state: LiveSessionManager.State): String =
     }
 
 @Composable
-private fun LiveStatePill(state: LiveSessionManager.State) {
+internal fun LiveStatePill(state: LiveSessionManager.State) {
     val active = state == LiveSessionManager.State.CONNECTING ||
         state == LiveSessionManager.State.LISTENING ||
         state == LiveSessionManager.State.ACTING
