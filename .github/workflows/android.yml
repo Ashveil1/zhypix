@@ -115,7 +115,7 @@ jobs:
             adb shell dumpsys accessibility > dumpsys_accessibility.txt || true
             adb logcat -c || true
             adb shell am instrument -w -e class com.example.ScreenControlE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee instrument_output.txt || true
-            grep -q "FAILURES!!!" instrument_output.txt && touch /tmp/e2e_failed
+            if grep -q "FAILURES!!!" instrument_output.txt; then touch /tmp/e2e_failed; fi
             grep -q "OK (" instrument_output.txt || touch /tmp/e2e_failed
             adb logcat -d > logcat.txt || true
             adb shell dumpsys activity services com.zhypix.app.jdufyx > dumpsys_activity_services.txt || true
