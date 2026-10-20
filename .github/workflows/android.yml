@@ -118,6 +118,7 @@ jobs:
             grep -q "FAILURES!!!" instrument_output.txt && touch /tmp/e2e_failed
             grep -q "OK (" instrument_output.txt || touch /tmp/e2e_failed
             adb logcat -d > logcat.txt || true
+            adb shell dumpsys activity services com.zhypix.app.jdufyx > dumpsys_activity_services.txt || true
             adb shell dumpsys accessibility > dumpsys_accessibility_after.txt || true
             adb shell run-as com.zhypix.app.jdufyx cat files/agent_diagnostics.jsonl > agent_diagnostics.jsonl || true
             adb shell screencap -p /sdcard/e2e_final.png || true

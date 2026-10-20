@@ -58,21 +58,40 @@ class ScreenControlE2eTest {
             // The force-stop before instrumentation marks the bound service
             // crashed; writing the same settings value is a no-op, so toggle
             // accessibility off/on every 6s to force a re-bind attempt.
-            if (System.currentTimeMillis() - lastReenable > 6000L) {
+            if (System.currentTimeMillis() - lastReenable > 8000L) {
                 lastReenable = System.currentTimeMillis()
+                logAccessibilityState("poll-${(System.currentTimeMillis() - start) / 1000}s")
                 try { enableAccessibilityService() } catch (e: Exception) {}
             }
             Thread.sleep(250)
         }
+        logAccessibilityState("timeout")
         fail("ZhypixAccessibilityService not connected - enable it with: adb shell settings put secure enabled_accessibility_services com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService")
         throw IllegalStateException("unreachable")
     }
 
     private fun enableAccessibilityService() {
+        // Toggle BOTH the master switch and the service list (same-value
+        // writes are no-ops for AMS) to force a re-evaluation of the binding.
         device.executeShellCommand("settings put secure accessibility_enabled 0")
-        Thread.sleep(400)
+        device.executeShellCommand("settings put secure enabled_accessibility_services ''")
+        Thread.sleep(600)
         device.executeShellCommand("settings put secure enabled_accessibility_services com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService")
         device.executeShellCommand("settings put secure accessibility_enabled 1")
+    }
+
+    private fun logAccessibilityState(tag: String) {
+        try {
+            val out = device.executeShellCommand("dumpsys accessibility")
+            val lines = out.lines().filter {
+                it.contains("Enabled services") || it.contains("Crashed services") ||
+                    it.contains("Bound services") || it.contains("Binding services") ||
+                    it.contains("zhypix", ignoreCase = true)
+            }
+            Log.e("E2E-DIAG", "[$tag] a11y state: " + lines.joinToString(" | ").take(1500))
+        } catch (e: Exception) {
+            Log.e("E2E-DIAG", "[$tag] dumpsys failed", e)
+        }
     }
 
     private fun openSettings() {
