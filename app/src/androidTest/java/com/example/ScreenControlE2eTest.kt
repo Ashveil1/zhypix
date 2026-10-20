@@ -69,7 +69,7 @@ class ScreenControlE2eTest {
     }
 
     private fun openSettings() {
-        val intent = Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val intent = Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         context.startActivity(intent)
         device.wait(Until.hasObject(By.pkg("com.android.settings")), 10_000)
         Thread.sleep(2000)
