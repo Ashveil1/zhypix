@@ -126,8 +126,13 @@ class ScreenControlE2eTest {
     @Test
     fun uiAutomationClickByText() {
         openSettings()
-        val target = device.wait(Until.findObject(By.textContains("Network")), 8_000)
-        assertNotNull("Settings list should contain 'Network'", target)
+        // The entry may be below the fold - scroll it into view first.
+        val scrolled = androidx.test.uiautomator.UiScrollable(
+            androidx.test.uiautomator.UiSelector().scrollable(true)
+        ).scrollTextIntoView("Network & internet")
+        assertTrue("Could not scroll 'Network & internet' into view", scrolled)
+        val target = device.wait(Until.findObject(By.textContains("Network")), 5_000)
+        assertNotNull("Settings list should contain 'Network & internet'", target)
         target.click()
         Thread.sleep(1500)
         val pkg = device.currentPackageName
@@ -141,9 +146,9 @@ class ScreenControlE2eTest {
         val search = device.wait(Until.findObject(By.textContains("Search")), 8_000)
         assertNotNull("Settings search bar not found", search)
         search.click()
-        Thread.sleep(1000)
-        val field = device.wait(Until.findObject(By.focused(true)), 5_000)
-        assertNotNull("No focused field after clicking search", field)
+        Thread.sleep(1500)
+        val field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5_000)
+        assertNotNull("No EditText after clicking search", field)
         field.text = "wifi"
         Thread.sleep(1500)
         val typed = device.findObject(By.textContains("wifi"))
