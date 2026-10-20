@@ -17,12 +17,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-enum class ReadyGate {
-    TREE_ONLY,       // Evaluates purely on accessibility hierarchy tree
-    FRAME_REQUIRED,  // Needs screenshot/frame verification
-    BOTH             // Changes screen state (needs tree + frame settle)
-}
-
 class ZhypixAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -82,12 +76,13 @@ class ZhypixAccessibilityService : AccessibilityService() {
                 } catch (e: Exception) {
                     // Ignore transient errors
                 }
-                delay(1200L)
+                delay(2500L)
             }
         }
     }
 
     private var lastEventTime: Long = 0L
+    private var lastHeavyEventWorkTime: Long = 0L
     private var wasInLoadingState: Boolean = false
 
     fun isLoadingState(hierarchy: String): Boolean {
@@ -154,15 +149,23 @@ class ZhypixAccessibilityService : AccessibilityService() {
                 lastEventTime = System.currentTimeMillis()
                 invalidateScreenshotCache()
 
-                // Trigger instant ad skip check on window/content update (only for external apps)
-                if (!isOurApp) {
-                    AutoAdSkipper.checkAndSkipAd(this)
-                }
+                // Heavy work is throttled: accessibility callbacks fire many times per
+                // second during animations and a full hierarchy dump + ad scan on every
+                // event caused jank and battery drain.
+                val now = System.currentTimeMillis()
+                if (now - lastHeavyEventWorkTime >= 300L) {
+                    lastHeavyEventWorkTime = now
 
-                // Trigger auto-resume monitor when screen transitions from loading to loaded (only if actively waiting)
-                val vm = com.example.viewmodel.AgentViewModel.instance
-                if (vm?.wasWaitingForScreenLoad == true) {
-                    checkAndNotifyLoadingTransition()
+                    // Ad skip check on window/content update (only for external apps)
+                    if (!isOurApp) {
+                        AutoAdSkipper.checkAndSkipAd(this)
+                    }
+
+                    // Auto-resume monitor when screen transitions from loading to loaded (only if actively waiting)
+                    val vm = com.example.viewmodel.AgentViewModel.instance
+                    if (vm?.wasWaitingForScreenLoad == true) {
+                        checkAndNotifyLoadingTransition()
+                    }
                 }
             }
         }
@@ -473,17 +476,23 @@ class ZhypixAccessibilityService : AccessibilityService() {
                     }
                 }
             } else {
-                // Strategy C: If no specific input node found, copy to clipboard anyway and try pasting into focused window
+                // Strategy C: no editable node found. Paste ONLY into the currently
+                // focused node - never blindly into every window root, which could
+                // drop user text into the wrong window (system UI, another app).
                 try {
                     val clipboard = getSystemService(CLIPBOARD_SERVICE) as? android.content.ClipboardManager
                     if (clipboard != null) {
                         val clip = android.content.ClipData.newPlainText("zhypix_input", text)
                         clipboard.setPrimaryClip(clip)
                         for (root in candidateRoots) {
-                            val pasteSuccess = try { root.performAction(AccessibilityNodeInfo.ACTION_PASTE) } catch (e: Exception) { false }
-                            if (pasteSuccess) {
-                                success = true
-                                break
+                            val focused = try { root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT) } catch (e: Exception) { null }
+                            if (focused != null) {
+                                val pasteSuccess = try { focused.performAction(AccessibilityNodeInfo.ACTION_PASTE) } catch (e: Exception) { false }
+                                try { focused.recycle() } catch (e: Exception) {}
+                                if (pasteSuccess) {
+                                    success = true
+                                    break
+                                }
                             }
                         }
                     }
@@ -588,71 +597,6 @@ class ZhypixAccessibilityService : AccessibilityService() {
         }
 
         return ActionResult(false, "Could not find element matching '$target' on active screen")
-    }
-
-    /**
-     * Gets a compact, token-efficient UI tree representation for LLM context.
-     */
-    fun getCompactTree(): String {
-        return ElementResolver.buildCompactTree(this)
-    }
-
-    private fun findNodeAt(x: Int, y: Int): AccessibilityNodeInfo? {
-        val windowList = try { windows } catch (e: Exception) { null }
-        if (!windowList.isNullOrEmpty()) {
-            for (w in windowList) {
-                val root = try { w.root } catch (e: Exception) { null }
-                if (root != null) {
-                    val target = searchNodeAt(root, x, y)
-                    if (target != null) return target
-                    try { root.recycle() } catch (e: Exception) {}
-                }
-            }
-        }
-        val activeRoot = rootInActiveWindow ?: return null
-        return searchNodeAt(activeRoot, x, y)
-    }
-
-    private fun searchNodeAt(node: AccessibilityNodeInfo?, x: Int, y: Int): AccessibilityNodeInfo? {
-        if (node == null) return null
-        val bounds = Rect()
-        node.getBoundsInScreen(bounds)
-        if (!bounds.contains(x, y)) return null
-
-        for (i in 0 until node.childCount) {
-            val child = try { node.getChild(i) } catch (e: Exception) { null }
-            val match = searchNodeAt(child, x, y)
-            if (match != null) return match
-        }
-
-        if (node.isClickable || node.text != null || node.contentDescription != null) {
-            return node
-        }
-        return null
-    }
-
-    private fun findAndClickNodeAt(x: Int, y: Int): Boolean {
-        val node = findNodeAt(x, y) ?: return false
-        var ok = false
-        try {
-            if (node.isClickable) {
-                ok = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            } else {
-                var p = try { node.parent } catch (e: Exception) { null }
-                while (p != null && !ok) {
-                    if (p.isClickable) {
-                        ok = p.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    }
-                    if (!ok) {
-                        p = try { p.parent } catch (e: Exception) { null }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            ok = false
-        }
-        try { node.recycle() } catch (e: Exception) {}
-        return ok
     }
 
     private fun findNodeByTextOrDesc(query: String): Pair<AccessibilityNodeInfo, Rect>? {
@@ -811,14 +755,6 @@ class ZhypixAccessibilityService : AccessibilityService() {
             takeScreenshotWithHash(forceFresh = forceFresh) { img, _ -> deferred.complete(img) }
             deferred.await()
         }
-    }
-
-    /**
-     * Dual-Signal Settle Detector: Fast routing depending on ReadyGate.
-     */
-    suspend fun awaitSettle(gate: ReadyGate, maxWaitMs: Long = 600L): String {
-        Log.d("Zhypix", "[Perception] Fast awaitSettle with ReadyGate: $gate (maxWait: ${maxWaitMs}ms)")
-        return awaitTreeSettle(maxWaitMs = maxWaitMs.coerceAtMost(500L), quietWindowMs = 40L)
     }
 
     /**

@@ -84,15 +84,4 @@ object BezierGestureSynthesizer {
 
         return Pair(finalX, finalY)
     }
-
-    /**
-     * Calculates log-normal human reading hesitation time based on text word count on screen.
-     */
-    fun calculateReadingTimeMs(wordCount: Int): Long {
-        if (wordCount <= 5) return 100L
-        // Average reading speed ~200 words/min = ~300ms per word
-        val baseReadingTime = (wordCount * 120L).coerceAtMost(1200L)
-        val gaussianJitter = (random.nextGaussian() * 150).toLong()
-        return (baseReadingTime + gaussianJitter).coerceIn(120L, 1500L)
-    }
 }
