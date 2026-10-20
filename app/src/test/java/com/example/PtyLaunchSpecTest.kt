@@ -18,7 +18,7 @@ import java.io.File
  * Binaries are faked with valid ELF headers so no real proot/busybox is needed on the JVM.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [35])
 class PtyLaunchSpecTest {
 
   private fun fakeElf(path: String, context: Context) {
@@ -40,17 +40,22 @@ class PtyLaunchSpecTest {
   }
 
   @Test
-  fun `host shell spec uses busybox sh with terminal env`() {
+  fun `host shell spec uses system sh with terminal env`() {
+    // Host PTY launches /system/bin/sh directly (SELinux W^X blocks exec of
+    // app-private busybox on API 29+; see PROOT_DEVELOPER_GUIDE 7.6). On the
+    // JVM test host /system/bin/sh does not exist, so it falls back to "sh".
     val context = ApplicationProvider.getApplicationContext<Context>()
-    fakeElf("lib/libbusybox.so", context)
     LinuxTerminalSimulator.initialize(context)
 
     val spec = LinuxTerminalSimulator.buildPtyLaunchSpec(null)
 
     assertNotNull(spec)
     spec!!
-    assertEquals(listOf("sh"), spec.args)
-    assertEquals(File(context.filesDir, "lib/libbusybox.so").absolutePath, spec.executablePath)
+    assertTrue(
+      "unexpected host shell: ${spec.executablePath}",
+      spec.executablePath == "/system/bin/sh" || spec.executablePath == "sh"
+    )
+    assertEquals(listOf(spec.executablePath), spec.args)
     assertTrue(spec.env.any { it == "TERM=xterm-256color" })
     assertNull(spec.distroAlias)
   }

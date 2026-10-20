@@ -185,11 +185,13 @@ class ZhypixAccessibilityService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
-    suspend fun dispatchClick(x: Float, y: Float): Boolean {
+    suspend fun dispatchClick(x: Float, y: Float, bounds: Rect? = null): Boolean {
         invalidateScreenshotCache()
 
-        // Human-like Gaussian jitter and fast responsive touch dwell time
-        val (targetX, targetY) = BezierGestureSynthesizer.applyHumanClickJitter(x, y)
+        // Human-like Gaussian jitter and fast responsive touch dwell time.
+        // When element bounds are known the jitter is constrained inside the
+        // element so small targets are never missed because of jitter.
+        val (targetX, targetY) = BezierGestureSynthesizer.applyHumanClickJitter(x, y, bounds)
 
         val path = Path()
         path.moveTo(targetX, targetY)
@@ -558,7 +560,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
             }
 
             if (!clicked) {
-                clicked = dispatchClick(cx, cy)
+                clicked = dispatchClick(cx, cy, resolved.bounds)
             } else {
                 visualizerView?.showClickFeedback(cx, cy)
             }
@@ -699,6 +701,73 @@ class ZhypixAccessibilityService : AccessibilityService() {
             else -> return false
         }
         return performGlobalAction(globalActionCode)
+    }
+
+    /**
+     * Native scroll: finds a scrollable node and performs ACTION_SCROLL_* directly.
+     * More reliable and faster than synthesizing a swipe gesture. Returns false when
+     * no scrollable node exists so callers can fall back to a swipe.
+     */
+    fun scrollSmart(direction: String): Boolean {
+        val action = when (direction.uppercase().trim()) {
+            "UP", "SCROLL_UP" -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            "DOWN", "SCROLL_DOWN" -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            "LEFT", "SCROLL_LEFT" -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            "RIGHT", "SCROLL_RIGHT" -> AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
+            else -> AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+        }
+        val roots = mutableListOf<AccessibilityNodeInfo>()
+        val windowList = try { windows } catch (e: Exception) { null }
+        if (!windowList.isNullOrEmpty()) {
+            for (w in windowList) {
+                val root = try { w.root } catch (e: Exception) { null }
+                if (root != null) roots.add(root)
+            }
+        }
+        if (roots.isEmpty()) {
+            val activeRoot = try { rootInActiveWindow } catch (e: Exception) { null }
+            if (activeRoot != null) roots.add(activeRoot)
+        }
+        var performed = false
+        for (root in roots) {
+            val node = findScrollableNode(root)
+            if (node != null) {
+                performed = try { node.performAction(action) } catch (e: Exception) { false }
+                try { node.recycle() } catch (e: Exception) {}
+                if (performed) break
+            }
+        }
+        roots.forEach { try { it.recycle() } catch (e: Exception) {} }
+        return performed
+    }
+
+    private fun findScrollableNode(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isScrollable) return node
+        for (i in 0 until node.childCount) {
+            val child = try { node.getChild(i) } catch (e: Exception) { null }
+            val match = findScrollableNode(child)
+            if (match != null) return match
+        }
+        return null
+    }
+
+    /**
+     * Event Sensor: waits until the AccessibilityEvent stream has been quiet for
+     * [quietMs] or [maxWaitMs] elapse, whichever comes first. Pure event timing,
+     * no hierarchy IPC per poll, so it is much cheaper than awaitTreeSettle for
+     * post-action settling. Returns the actual wait time in ms.
+     */
+    suspend fun awaitEventQuiet(quietMs: Long = 120L, maxWaitMs: Long = 900L): Long {
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < maxWaitMs) {
+            val quietFor = System.currentTimeMillis() - lastEventTime
+            if (quietFor >= quietMs) break
+            kotlinx.coroutines.delay(25L)
+        }
+        val waited = System.currentTimeMillis() - start
+        Log.d("Zhypix", "[Perception] Event stream quiet after ${waited}ms")
+        return waited
     }
 
     /**
