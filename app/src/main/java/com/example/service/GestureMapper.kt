@@ -104,7 +104,9 @@ object GestureMapper {
                                 (sx > 0f || sy > 0f || ex > 0f || ey > 0f)) {
                                 sx *= screenW; sy *= screenH; ex *= screenW; ey *= screenH
                             }
-                            val ok = service.dispatchDragAndDrop(sx, sy, ex, ey)
+                            val (msx, msy) = service.mapScreenshotSpaceToScreen(sx, sy)
+                            val (mex, mey) = service.mapScreenshotSpaceToScreen(ex, ey)
+                            val ok = service.dispatchDragAndDrop(msx, msy, mex, mey)
                             return if (ok) {
                                 ActionResult(true, "Drag-and-drop from ($sx, $sy) to ($ex, $ey) dispatched.")
                             } else {
@@ -155,6 +157,12 @@ object GestureMapper {
                             var startY = numMatches[1]
                             var endX = numMatches[2]
                             var endY = numMatches[3]
+
+                            run {
+                                val (mx1, my1) = service.mapScreenshotSpaceToScreen(startX, startY)
+                                val (mx2, my2) = service.mapScreenshotSpaceToScreen(endX, endY)
+                                startX = mx1; startY = my1; endX = mx2; endY = my2
+                            }
 
                             // Auto-scale normalized coordinates (0.0 to 1.0)
                             if (startX <= 1.0f && startY <= 1.0f && endX <= 1.0f && endY <= 1.0f &&

@@ -18,6 +18,9 @@ object AutoAdSkipper {
     var isEnabled: Boolean = true
 
     private var lastSkipAttemptTime: Long = 0L
+
+    @Volatile
+    private var scanInFlight: Boolean = false
     private const val MIN_SKIP_INTERVAL_MS = 1200L
 
     private val AD_RESOURCE_IDS = listOf(
@@ -73,7 +76,13 @@ object AutoAdSkipper {
         }
 
         if (candidateRoots.isEmpty()) return false
+        if (scanInFlight) return false
+        scanInFlight = true
+        lastSkipAttemptTime = now
 
+        // The tree scan is hundreds of binder IPC calls; never run it on the
+        // accessibility callback thread (main) - it was a major jank source.
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
         try {
             var skipTarget: Pair<AccessibilityNodeInfo, Rect>? = null
             for (root in candidateRoots) {
@@ -82,7 +91,6 @@ object AutoAdSkipper {
             }
 
             if (skipTarget != null) {
-                lastSkipAttemptTime = now
                 Log.i(TAG, "Found YouTube Skip Ad button! Attempting instant auto-click...")
 
                 var clicked = false
@@ -112,8 +120,8 @@ object AutoAdSkipper {
                     val cx = bounds.centerX().toFloat()
                     val cy = bounds.centerY().toFloat()
                     Log.i(TAG, "Dispatching gesture click at ($cx, $cy) for Skip Ad button")
-                    service.visualizerView?.showClickFeedback(cx, cy)
                     kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
+                        service.visualizerView?.showClickFeedback(cx, cy)
                         service.dispatchClick(cx, cy)
                     }
                     clicked = true
@@ -124,12 +132,13 @@ object AutoAdSkipper {
                 if (clicked) {
                     Log.i(TAG, "Successfully auto-clicked Skip Ad button!")
                 }
-                return clicked
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error checking for ad skip button", e)
         } finally {
             candidateRoots.forEach { try { it.recycle() } catch (e: Exception) {} }
+            scanInFlight = false
+        }
         }
 
         return false

@@ -244,7 +244,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     fun startInactivityWatchdog() {
         watchdogJob?.cancel()
         lastActionTime = System.currentTimeMillis()
-        watchdogJob = viewModelScope.launch {
+        watchdogJob = viewModelScope.launch(Dispatchers.IO) {
             while (coroutineContext.isActive) {
                 kotlinx.coroutines.delay(1000L)
                 if (!_isProcessing.value) {
@@ -1767,6 +1767,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     ========================================
                     - Screen Width: $screenWidth px | Screen Height: $screenHeight px | Density: $screenDensity
                     - All CLICK/TAP coordinates MUST lie within [0, $screenWidth] range for X, and [0, $screenHeight] range for Y.
+                    - IMPORTANT COORDINATE MAPPING: the screenshot image you see is SMALLER than the real screen (its size is given with each post-action snapshot), but Bounds=/Center= values in the Screen Hierarchy are RAW screen pixels. ALWAYS take coordinates from hierarchy Bounds/Center values, never by estimating pixel positions in the image.
                     - Target coordinate space for CLICK/TAP and SWIPE actions must use the RAW FULL RESOLUTION coordinate space [0 to $screenWidth, 0 to $screenHeight] from node `Center=(X,Y)` or `Bounds=(left,top)->(right,bottom)`.
 
                     ========================================
@@ -3049,7 +3050,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             _lastScreenshot.value = null
                             service.invalidateScreenshotCache()
                             val snapshot = com.example.agent.Perception.settleAndSnapshot(service, isAppLaunch = normAct == "OPEN_APP")
-                            postActionHierarchy = snapshot.hierarchy
+                            postActionHierarchy = "[Screen: " + service.resources.displayMetrics.widthPixels + "x" + service.resources.displayMetrics.heightPixels + " raw px; screenshot image: " + service.lastModelScreenshotWidth + "x" + service.lastModelScreenshotHeight + " px - use hierarchy Bounds/Center (raw px) for coordinates]\n" + snapshot.hierarchy
                             addReasoningStep("Post-Action Event Settle (${snapshot.settleMs}ms)", "Accessibility event stream quiet after $act.", "RUNNING", "SYSTEM")
                             addReasoningStep("Step timing", "execute ${actionOutcome.executeMs}ms, settle ${snapshot.settleMs}ms, tree ${snapshot.captureMs}ms", "INFO", "SYSTEM")
                             com.example.agent.AgentDiagnostics.recordActionStep(
