@@ -1211,6 +1211,24 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 ),
                 mapOf(
+                    "name" to "save_guide",
+                    "description" to "Save a how-to guide the user taught or approved, as short plain-text steps. Same title replaces the old one. Never include passwords or personal codes.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
+                        "title" to mapOf("type" to "STRING"),
+                        "steps" to mapOf("type" to "ARRAY", "items" to mapOf("type" to "STRING"))
+                    ), "required" to listOf("title", "steps"))
+                ),
+                mapOf(
+                    "name" to "get_guide",
+                    "description" to "Find a saved guide by title or keywords and return its steps. Use it before doing or explaining a task the user taught you.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf("query" to mapOf("type" to "STRING")), "required" to listOf("query"))
+                ),
+                mapOf(
+                    "name" to "delete_guide",
+                    "description" to "Delete a saved guide by title.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf("title" to mapOf("type" to "STRING")), "required" to listOf("title"))
+                ),
+                mapOf(
                     "name" to "read_notifications",
                     "description" to "Read the user's recent notifications saved on this device (last 24 hours, verification codes hidden). Requires the user to enable notification access.",
                     "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
@@ -1762,6 +1780,24 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         ),
                         mapOf("type" to "function", "function" to mapOf(
+                            "name" to "save_guide",
+                            "description" to "Save a how-to guide the user taught or approved, as short plain-text steps. Same title replaces the old one. Never include passwords or personal codes.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf(
+                                "title" to mapOf("type" to "string"),
+                                "steps" to mapOf("type" to "array", "items" to mapOf("type" to "string"))
+                            ), "required" to listOf("title", "steps"))
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
+                            "name" to "get_guide",
+                            "description" to "Find a saved guide by title or keywords and return its steps.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf("query" to mapOf("type" to "string")), "required" to listOf("query"))
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
+                            "name" to "delete_guide",
+                            "description" to "Delete a saved guide by title.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf("title" to mapOf("type" to "string")), "required" to listOf("title"))
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
                             "name" to "read_notifications",
                             "description" to "Read the user's recent notifications saved on this device (last 24 hours, verification codes hidden). Requires notification access.",
                             "parameters" to mapOf("type" to "object", "properties" to mapOf("app" to mapOf("type" to "string"), "limit" to mapOf("type" to "integer")))
@@ -2193,6 +2229,22 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         )))
                     }
 
+                    "save_guide" -> {
+                        val steps = (call.args?.get("steps") as? List<*>)?.map { it?.toString().orEmpty() } ?: emptyList()
+                        val g = guideStore.save(call.args?.get("title") as? String ?: "", steps, System.currentTimeMillis())
+                        responseParts.add(Part(functionResponse = FunctionResponse(name = call.name,
+                            response = if (g != null) mapOf("status" to "success", "saved" to g.title) else mapOf("status" to "error", "message" to "A guide needs a title and at least one step."))))
+                    }
+                    "get_guide" -> {
+                        val g = guideStore.find(call.args?.get("query") as? String ?: "")
+                        responseParts.add(Part(functionResponse = FunctionResponse(name = call.name,
+                            response = if (g != null) mapOf("status" to "success", "guide" to g.asText()) else mapOf("status" to "not_found"))))
+                    }
+                    "delete_guide" -> {
+                        val g = guideStore.all().firstOrNull { it.title.equals((call.args?.get("title") as? String ?: "").trim(), ignoreCase = true) }
+                        if (g != null) guideStore.delete(g.id)
+                        responseParts.add(Part(functionResponse = FunctionResponse(name = call.name, response = mapOf("status" to if (g != null) "success" else "not_found"))))
+                    }
                     "read_notifications" -> {
                         val ctx = getApplication<android.app.Application>()
                         val enabled = android.provider.Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners").orEmpty().contains(ctx.packageName)
@@ -2667,6 +2719,10 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 catch (e: Exception) { addReasoningStep("Routine failed", e.message ?: "unknown", "WARNING", "SYSTEM") }
             }
         }
+    }
+
+    private val guideStore by lazy {
+        com.example.agent.GuideStore(com.example.agent.JsonListStore(java.io.File(getApplication<android.app.Application>().filesDir, "guides.json")))
     }
 
     private val agentMemory by lazy {
