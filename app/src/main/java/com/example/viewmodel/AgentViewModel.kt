@@ -272,6 +272,23 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         Log.i("Zhypix", "Pause requested: user touched the screen")
     }
 
+    /** Sensitive action (send/pay/confirm-style button) awaiting explicit user confirmation. */
+    @Volatile
+    var pendingSensitiveActionDesc: String? = null
+    @Volatile
+    private var sensitiveActionApproved: Boolean = false
+
+    private fun isSensitiveAction(act: String, tgt: String): Boolean {
+        val a = act.uppercase().trim()
+        if (a != "CLICK" && a != "TAP") return false
+        val t = tgt.lowercase()
+        val keywords = listOf(
+            "send", "pay", "confirm", "purchase", "buy now", "checkout", "transfer",
+            "โอน", "ชำระ", "ส่ง", "ยืนยัน", "ซื้อ", "จ่าย"
+        )
+        return keywords.any { t.contains(it) }
+    }
+
     fun notifyScreenLoadingFinished(newHierarchy: String) {
         if (_isProcessing.value) return
         if (!wasWaitingForScreenLoad) return
@@ -1371,6 +1388,39 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendCommand(text: String) {
         if (text.isBlank()) return
+
+        // Confirmation gate: a sensitive action (send/pay/confirm) is waiting for the user's answer
+        val pendingSensitive = pendingSensitiveActionDesc
+        if (pendingSensitive != null) {
+            val norm = text.trim().lowercase()
+            val affirm = norm in setOf("y", "yes", "ok", "okay", "confirm", "sure", "go", "go ahead",
+                "ยืนยัน", "ใช่", "ตกลง", "ทำเลย", "เอาเลย", "ดำเนินการ", "ส่ง", "จ่าย", "โอเค")
+            val deny = norm in setOf("n", "no", "cancel", "stop", "skip",
+                "ไม่", "ยกเลิก", "อย่า", "ไม่ต้อง", "ไม่เอา", "พอ")
+            if (affirm || deny) {
+                pendingSensitiveActionDesc = null
+                _messages.value += ChatMessage.User(text)
+                if (affirm) {
+                    sensitiveActionApproved = true
+                    addReasoningStep("Sensitive action confirmed", "User approved: $pendingSensitive", "SUCCESS", "USER")
+                    conversationHistory.add(Content(parts = listOf(Part(
+                        text = "[USER_CONFIRMATION]: The user explicitly CONFIRMED the sensitive action ($pendingSensitive). You may perform it now, exactly once."
+                    )), role = "user"))
+                } else {
+                    addReasoningStep("Sensitive action declined", "User declined: $pendingSensitive", "WARNING", "USER")
+                    conversationHistory.add(Content(parts = listOf(Part(
+                        text = "[USER_CONFIRMATION]: The user DECLINED the sensitive action ($pendingSensitive). Do NOT perform it; continue the task without it or ask for an alternative."
+                    )), role = "user"))
+                }
+                _isProcessing.value = true
+                _agentState.value = AgentState.THINKING
+                startInactivityWatchdog()
+                currentAgentJob = appScope.launch { executeGeminiCall() }
+                return
+            }
+            // Any other message supersedes the pending confirmation
+            pendingSensitiveActionDesc = null
+        }
 
         if (_isProcessing.value) {
             currentAgentJob?.cancel()
@@ -2812,8 +2862,21 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                     "message" to "The user touched the screen. The agent is now paused; await the user's next instruction."
                                 )
                             )))
+                        } else if (isSensitiveAction(act, tgt) && !sensitiveActionApproved) {
+                            // Confirm-before-send gate: hold the action, ask the user, halt the loop.
+                            pendingSensitiveActionDesc = "$act on '$tgt'"
+                            addReasoningStep("Confirmation required", "Sensitive action $act on '$tgt' is held until the user confirms.", "WARNING", "SYSTEM")
+                            _messages.value += ChatMessage.System("Zhypix wants to $act \"$tgt\" - this may send, pay, or confirm something. Reply 'confirm' to proceed or 'cancel' to skip.")
+                            responseParts.add(Part(functionResponse = FunctionResponse(
+                                name = call.name,
+                                response = mapOf(
+                                    "status" to "awaiting_user_confirmation",
+                                    "message" to "This action looks sensitive (sending, paying, or confirming). It is held until the user explicitly confirms. Do not retry it now."
+                                )
+                            )))
                         } else {
-                        
+                        if (sensitiveActionApproved) sensitiveActionApproved = false
+
                         if (act == "WAIT" || act == "SLEEP") {
                             isExecutingWaitAction = true
                         }
@@ -2981,14 +3044,18 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 ))
             }
 
-            if (touchPauseRequested) {
+            if (touchPauseRequested || pendingSensitiveActionDesc != null) {
                 touchPauseRequested = false
                 _isProcessing.value = false
                 _agentState.value = AgentState.IDLE
                 _activeAction.value = null
                 stopLiveScreenStream()
                 stopInactivityWatchdog()
-                addReasoningStep("Agent paused", "Paused because the user touched the screen. Say anything to continue.", "WARNING", "SYSTEM")
+                val pauseReason = if (pendingSensitiveActionDesc != null)
+                    "Waiting for your confirmation of a sensitive action."
+                else
+                    "Paused because the user touched the screen. Say anything to continue."
+                addReasoningStep("Agent paused", pauseReason, "WARNING", "SYSTEM")
             } else {
                 _agentState.value = AgentState.THINKING
                 autoContinueCount = 0
