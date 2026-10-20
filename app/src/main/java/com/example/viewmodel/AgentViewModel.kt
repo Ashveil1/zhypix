@@ -3148,8 +3148,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         "need_login" -> if (terminalMessage.isNotBlank()) "Please log in: $terminalMessage. Tell me when done and I'll continue." else "Please log in to the app on screen, then tell me to continue."
                         "encountered_captcha" -> "A captcha is on screen - please solve it, then tell me to continue."
                         "max_steps" -> terminalMessage
-                        else -> if (terminalMessage.isNotBlank()) "$terminalMessage
-Reply and I'll continue." else "I need your input to continue."
+                        else -> if (terminalMessage.isNotBlank()) terminalMessage + "\nReply and I'll continue." else "I need your input to continue."
                     }
                     _messages.value += ChatMessage.System(userNote)
                 }

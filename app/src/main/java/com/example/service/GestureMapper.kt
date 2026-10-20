@@ -111,7 +111,7 @@ object GestureMapper {
                                 ActionResult(false, "Failed to dispatch drag-and-drop gesture.")
                             }
                         }
-                        return ActionResult(false, "DRAG_AND_DROP needs coordinates: target = "x1,y1 -> x2,y2"")
+                        return ActionResult(false, "DRAG_AND_DROP needs coordinates: target = 'x1,y1 -> x2,y2'")
                     }
                     "SWIPE", "SCROLL" -> {
                         val cleanTarget = target.uppercase().trim()
