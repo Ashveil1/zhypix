@@ -24,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -66,23 +67,30 @@ fun SubScreenHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .padding(vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onBack) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(SurfaceElevated)
+                .border(1.dp, SurfaceLightBorder, CircleShape)
+                .clickable(onClick = onBack),
+            contentAlignment = Alignment.Center
+        ) {
             Icon(
                 imageVector = Icons.Default.ArrowBack,
                 contentDescription = "Back",
-                tint = Color.White,
-                modifier = Modifier.size(24.dp)
+                tint = TextPrimary,
+                modifier = Modifier.size(18.dp)
             )
         }
-        Spacer(modifier = Modifier.width(12.dp))
+        Spacer(modifier = Modifier.width(14.dp))
         Text(
             text = title,
-            color = Color.White,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
+            color = TextPrimary,
+            style = MaterialTheme.typography.titleLarge
         )
     }
 }
@@ -98,9 +106,10 @@ fun <T> SegmentedControlGroup(
         modifier = modifier
             .fillMaxWidth()
             .height(40.dp)
-            .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
-            .padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp)
+            .background(SurfaceDark, RoundedCornerShape(12.dp))
+            .border(1.dp, SurfaceLightBorder, RoundedCornerShape(12.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         items.forEach { (value, label) ->
             val isSelected = value == selectedItem
@@ -109,14 +118,14 @@ fun <T> SegmentedControlGroup(
                     .weight(1f)
                     .fillMaxHeight()
                     .clickable { onItemSelected(value) },
-                color = if (isSelected) Color.White.copy(alpha = 0.15f) else Color.Transparent,
-                shape = RoundedCornerShape(6.dp),
-                border = if (isSelected) BorderStroke(1.dp, Color.White.copy(alpha = 0.1f)) else null
+                color = if (isSelected) Accent else Color.Transparent,
+                shape = RoundedCornerShape(9.dp),
+                border = null
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         text = label,
-                        color = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+                        color = if (isSelected) OnAccent else TextSecondary,
                         fontSize = 11.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
@@ -132,9 +141,9 @@ fun SectionGroupCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     Surface(
-        color = Color(0xFF131316),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF222227)),
+        color = SurfaceDark,
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, SurfaceLightBorder),
         modifier = modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -164,7 +173,7 @@ fun SectionSettingRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = Color.White.copy(alpha = 0.85f),
+                tint = TextPrimary,
                 modifier = Modifier.size(20.dp)
             )
             
@@ -173,7 +182,7 @@ fun SectionSettingRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    color = Color.White,
+                    color = TextPrimary,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -181,7 +190,7 @@ fun SectionSettingRow(
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = subtitle,
-                        color = Color.White.copy(alpha = 0.45f),
+                        color = TextSecondary,
                         fontSize = 12.sp
                     )
                 }
