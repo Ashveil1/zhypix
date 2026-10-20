@@ -135,6 +135,7 @@ jobs:
             e2e_final.png
             dumpsys_accessibility.txt
             dumpsys_accessibility_after.txt
+            dumpsys_activity_services.txt
             logcat.txt
           retention-days: 14
           if-no-files-found: ignore
