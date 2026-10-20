@@ -579,8 +579,7 @@ class ZhypixAccessibilityService : AccessibilityService() {
         val budget = traverseBudget.get() ?: 0
         if (budget <= 0 || builder.length > 60000) {
             if (budget > 0 && builder.length > 60000) {
-                builder.append("  [hierarchy truncated: size limit]
-")
+                builder.append("  [hierarchy truncated: size limit]\n")
                 traverseBudget.set(0)
             }
             return
