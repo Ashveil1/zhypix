@@ -25,7 +25,7 @@ These are scheduling inputs, not guarantees about elapsed time. Android and disp
 
 - One retry per capture/model/parse stage, 1000 ms before the retry.
 - Action retry only on definite pre-dispatch rejection. A cancellation or timeout could already have affected the screen, so it is not automatically repeated.
-- Post-action delay: 0 ms. A fresh capture is still required before every decision.
+- Post-action delay: 1000 ms (local default, tuned from the emulator live run: with 0 ms the next capture was taken before the page transition and the model repeated its tap). A fresh capture is still required before every decision.
 - Gesture timeout: 5000 ms. Capture timeout: 15000 ms.
 - Android screenshot minimum interval: 350 ms, to avoid OS throttling.
 - Overlay compositor settling: 32 ms.
