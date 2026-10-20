@@ -2036,8 +2036,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                     ),
                                     "required" to listOf("status")
                                 )
-                            ),
-                            mapOf(
+                            )
+                        ),
+                        mapOf(
+                            "type" to "function",
+                            "function" to mapOf(
                                 "name" to "remember_preference",
                                 "description" to "Remember a user preference or fact like their favorite color, schedule, etc.",
                                 "parameters" to mapOf(
