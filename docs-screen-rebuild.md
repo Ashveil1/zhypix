@@ -45,6 +45,9 @@ Landed since (unit tested in JVM CI; not exercised live on a device):
 - Needs-you: tasks that stop for confirmation/login/captcha are saved and survive restart. No UI lists them yet.
 - Routines: interval (min 15 min) or daily schedules, saved with `schedule_routine`/`list_routines`/`delete_routine`. A minute ticker in the app process runs one due routine at a time. They only run while the app process is alive and accessibility is enabled. There is no background alarm, so a killed app misses runs (at most one catch-up run later).
 
+- Notification listener: local history of the last 24 hours (max 100), verification codes masked, ongoing and own notifications skipped. The user must enable notification access in Android settings. `read_notifications` returns entries to the user's chosen model only when that tool is called.
+- Guides: plain-text how-to steps saved with `save_guide`, read with `get_guide`, removed with `delete_guide`. Our own design: no tap or coordinate recording, no accessibility event capture. The agent writes a guide from what the user teaches or approves, then follows it through `control_phone`.
+
 Verified live on an emulator with a free model (not a physical phone): single and two-level Settings navigation, and retry after a swallowed tap. The app's own gesture adapter has not been exercised end to end.
 
-Not yet claimed as complete: live voice tool bridge on a device, guides recording, notification listener, background virtual display, remote control. Remote control would require a separate trusted backend and is not implemented. Billing and AGI account gating are not used.
+Not yet claimed as complete: live voice tool bridge on a device, recorded-gesture guides, background virtual display, remote control. Remote control would require a separate trusted backend and is not implemented. Billing and AGI account gating are not used.
