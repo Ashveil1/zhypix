@@ -47,17 +47,6 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         private const val STUCK_ACTION_ABORT_THRESHOLD = 4
     }
 
-    init {
-        instance = this
-        // The floating controller bubble dims and goes click-through whenever
-        // the agent is mid-task so it neither covers targets nor eats taps.
-        viewModelScope.launch {
-            _isProcessing.collect { active ->
-                try { com.example.service.FloatingAgentService.instance?.setAgentActive(active) } catch (e: Exception) {}
-            }
-        }
-    }
-
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
 
     private val db = AppDatabase.getDatabase(application)
@@ -154,6 +143,17 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing = _isProcessing.asStateFlow()
+
+    init {
+        instance = this
+        // Initialize the flow before a Main.immediate collector can access it.
+        viewModelScope.launch {
+            _isProcessing.collect { active ->
+                try { com.example.service.FloatingAgentService.instance?.setAgentActive(active) } catch (_: Exception) {}
+            }
+        }
+    }
+
 
     private val _reasoningSteps = MutableStateFlow<List<ReasoningStep>>(emptyList())
     val reasoningSteps = _reasoningSteps.asStateFlow()
