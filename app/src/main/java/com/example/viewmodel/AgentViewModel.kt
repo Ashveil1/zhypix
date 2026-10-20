@@ -1191,6 +1191,13 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         mapOf(
             "functionDeclarations" to listOf(
                 mapOf(
+                    "name" to "control_phone",
+                    "description" to "Perform the user's Android screen task through fresh screenshots and one action per observation. Ask for user help for sign-in, CAPTCHA, and sensitive actions.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
+                        "task" to mapOf("type" to "STRING", "description" to "The complete user-authorized screen task")
+                    ), "required" to listOf("task"))
+                ),
+                mapOf(
                     "name" to "remember_preference",
                     "description" to "Remember a user preference or fact like their favorite color, schedule, etc.",
                     "parameters" to mapOf(
@@ -1689,6 +1696,13 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     
                     val baseOpenAiTools = mutableListOf(
+                        mapOf("type" to "function", "function" to mapOf(
+                            "name" to "control_phone",
+                            "description" to "Perform the user's Android screen task. Sign-in and sensitive actions need user participation.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf(
+                                "task" to mapOf("type" to "string")
+                            ), "required" to listOf("task"))
+                        )),
                         mapOf(
                             "type" to "function",
                             "function" to mapOf(
@@ -2089,6 +2103,22 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             val responseParts = mutableListOf<Part>()
             for (call in functionCalls) {
                 when (call.name) {
+                    "control_phone" -> {
+                        val task = call.args?.get("task") as? String ?: ""
+                        val terminal = runScreenTask(task)
+                        pendingTerminalStatus = when (terminal) {
+                            is com.example.agent.ScreenAction.Finished -> "finished"
+                            is com.example.agent.ScreenAction.NeedsConfirmation -> "needs_confirmation"
+                            is com.example.agent.ScreenAction.NeedLogin -> "need_login"
+                            is com.example.agent.ScreenAction.EncounteredCaptcha -> "encountered_captcha"
+                            else -> "message_user"
+                        }
+                        pendingTerminalMessage = terminal.message
+                        responseParts.add(Part(functionResponse = FunctionResponse(
+                            name = call.name, response = mapOf("status" to pendingTerminalStatus.orEmpty(), "message" to terminal.message)
+                        )))
+                    }
+
                     "remember_preference" -> {
                         val k = call.args?.get("key") as? String ?: ""
                         val v = call.args?.get("value") as? String ?: ""
@@ -2459,6 +2489,31 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Comma-separated "Label (package)" list, rebuilt once per task. */
+    private suspend fun runScreenTask(task: String): com.example.agent.ScreenAction.Terminal {
+        if (task.isBlank()) return com.example.agent.ScreenAction.MessageUser("What would you like me to do on screen?")
+        val service = com.example.service.ZhypixAccessibilityService.instance
+            ?: return com.example.agent.ScreenAction.MessageUser("Enable Zhypix accessibility service in Android Settings first.")
+        val key = _apiKey.value.ifBlank { if (_provider.value == "Gemini") BuildConfig.GEMINI_API_KEY else "" }
+        val base = _baseUrl.value.ifBlank { if (_provider.value == "Gemini") "https://generativelanguage.googleapis.com" else "" }
+        val model = com.example.agent.ScreenModel(key, base, _modelName.value, _provider.value == "Gemini")
+        val loop = com.example.agent.ScreenLoop(
+            capture = {
+                if (touchPauseRequested) throw kotlinx.coroutines.CancellationException("Paused by user")
+                service.observation.capture()
+            },
+            decide = { observation, history -> model.decide(task, observation, history) },
+            execute = { action ->
+                _agentState.value = AgentState.ACTING
+                val result = service.device.execute(action)
+                addReasoningStep("Screen action", "$action: ${result.message}", if (result.success) "SUCCESS" else "WARNING", "TOOL")
+                _agentState.value = AgentState.THINKING
+                result
+            },
+            onStep = { step, max -> _currentStep.value = step; _maxStepsPerTask.value = max }
+        )
+        return loop.run()
+    }
+
     private fun getInstalledAppsSummary(): String {
         installedAppsCache?.let { return it }
         return try {
