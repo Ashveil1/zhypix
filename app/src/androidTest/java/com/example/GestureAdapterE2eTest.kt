@@ -25,7 +25,7 @@ class GestureAdapterE2eTest {
     private val ui: UiAutomation = inst.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
     private val component = "com.zhypix.app.jdufyx/com.example.service.ZhypixAccessibilityService"
 
-    private fun shell(cmd: String) { ui.executeShellCommand(cmd).use { it.readBytes() } }
+    private fun shell(cmd: String) { android.os.ParcelFileDescriptor.AutoCloseInputStream(ui.executeShellCommand(cmd)).use { it.readBytes() } }
 
     private fun bindService(): ZhypixAccessibilityService {
         ZhypixAccessibilityService.instance?.let { return it }
