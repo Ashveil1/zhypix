@@ -1,6 +1,5 @@
 package com.example
 
-import com.example.service.ElementSelector
 import com.example.ui.components.MarkdownBlock
 import com.example.ui.components.parseMarkdownBlocks
 import org.junit.Assert.assertEquals
@@ -14,48 +13,6 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class BugSweepRegressionTest {
-
-  // ---- ElementSelector.parse ----
-
-  @Test
-  fun `selector parses parenthesized coordinates`() {
-    val s = ElementSelector.parse("(100, 200)")
-    assertEquals(100f, s.x)
-    assertEquals(200f, s.y)
-    assertNull(s.text)
-  }
-
-  @Test
-  fun `selector parses bare and bracketed coordinates`() {
-    val a = ElementSelector.parse("100,200")
-    assertEquals(100f, a.x)
-    assertEquals(200f, a.y)
-    val b = ElementSelector.parse("[0.5, 0.25]")
-    assertEquals(0.5f, b.x)
-    assertEquals(0.25f, b.y)
-  }
-
-  @Test
-  fun `selector parses resource id`() {
-    val s = ElementSelector.parse("com.example:id/login_button")
-    assertEquals("com.example:id/login_button", s.resourceId)
-    assertNull(s.text)
-  }
-
-  @Test
-  fun `selector falls back to text query`() {
-    val s = ElementSelector.parse("Sign in")
-    assertEquals("Sign in", s.text)
-    assertEquals("Sign in", s.contentDesc)
-  }
-
-  @Test
-  fun `selector blank query yields empty selector`() {
-    val s = ElementSelector.parse("   ")
-    assertNull(s.text)
-    assertNull(s.x)
-    assertNull(s.resourceId)
-  }
 
   // ---- parseMarkdownBlocks ----
 

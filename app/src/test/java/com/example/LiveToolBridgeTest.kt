@@ -26,44 +26,12 @@ class LiveToolBridgeTest {
     LiveSessionManager.ToolCallRequest(id = "id1", name = name, args = args)
 
   @Test
-  fun `tools payload declares computer_use_action with required args`() {
-    val payload = bridge().toolsPayload()
-    val decl = payload.getJSONObject(0).getJSONArray("functionDeclarations").getJSONObject(0)
-    assertEquals("computer_use_action", decl.getString("name"))
-    val required = decl.getJSONObject("parameters").getJSONArray("required")
-    assertEquals("action_type", required.getString(0))
-    assertEquals("target", required.getString(1))
-  }
-
-  @Test
-  fun `unknown tool returns error payload`() = runTest {
-    val resp = bridge().execute(call("nope", JSONObject()))
-    assertEquals("error", resp.getString("status"))
-    assertTrue(resp.getString("message").contains("Unknown tool"))
-  }
-
-  @Test
-  fun `missing action_type returns error payload`() = runTest {
-    val resp = bridge().execute(call("computer_use_action", JSONObject().put("target", "OK")))
-    assertEquals("error", resp.getString("status"))
-    assertTrue(resp.getString("message").contains("action_type"))
-  }
-
-  @Test
-  fun `unconfirmed sensitive action is blocked without executing`() = runTest {
-    val resp = bridge(confirm = { _, _ -> false }).execute(
-      call("computer_use_action", JSONObject().put("action_type", "CLICK").put("target", "Send"))
-    )
-    assertEquals("blocked", resp.getString("status"))
-  }
-
-  @Test
-  fun `missing accessibility service returns actionable error`() = runTest {
-    val resp = bridge().execute(
-      call("computer_use_action", JSONObject().put("action_type", "CLICK").put("target", "OK"))
-    )
-    assertEquals("error", resp.getString("status"))
-    assertTrue(resp.getString("message").contains("Accessibility Service"))
+  fun `screen tools are unavailable during clean rebuild`() = runTest {
+    val b = bridge()
+    assertEquals(0, b.toolsPayload().length())
+    val response = b.execute(call("computer_use_action", JSONObject()))
+    assertEquals("error", response.getString("status"))
+    assertTrue(response.getString("message").contains("being rebuilt"))
   }
 
   @Test
