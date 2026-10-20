@@ -8,38 +8,72 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme =
   darkColorScheme(
-    primary = androidx.compose.ui.graphics.Color.White,
-    onPrimary = androidx.compose.ui.graphics.Color.Black,
-    secondary = androidx.compose.ui.graphics.Color(0xFFE5E5EA),
-    onSecondary = androidx.compose.ui.graphics.Color.Black,
-    tertiary = androidx.compose.ui.graphics.Color(0xFF86868B),
-    background = androidx.compose.ui.graphics.Color(0xFF000000),
-    onBackground = androidx.compose.ui.graphics.Color(0xFFF5F5F7),
-    surface = androidx.compose.ui.graphics.Color(0xFF161618),
-    onSurface = androidx.compose.ui.graphics.Color(0xFFF5F5F7),
-    surfaceVariant = androidx.compose.ui.graphics.Color(0xFF1C1C1E),
-    onSurfaceVariant = androidx.compose.ui.graphics.Color(0xFFE5E5EA),
-    outline = androidx.compose.ui.graphics.Color(0xFF27272A)
+    primary = Accent,
+    onPrimary = OnAccent,
+    primaryContainer = SurfaceElevated,
+    onPrimaryContainer = TextPrimary,
+    secondary = AccentDim,
+    onSecondary = OnAccent,
+    secondaryContainer = SurfaceElevated,
+    onSecondaryContainer = TextPrimary,
+    tertiary = TextSecondary,
+    onTertiary = OnAccent,
+    background = ObsidianBase,
+    onBackground = TextPrimary,
+    surface = BackgroundGradientStart,
+    onSurface = TextPrimary,
+    surfaceVariant = Color(0xFF16161A),
+    onSurfaceVariant = Color(0xFFD4D4D8),
+    surfaceContainerLowest = ObsidianBase,
+    surfaceContainerLow = Color(0xFF0E0E11),
+    surfaceContainer = SurfaceDark,
+    surfaceContainerHigh = SurfaceElevated,
+    surfaceContainerHighest = SurfaceOverlay,
+    outline = SurfaceLightBorder,
+    outlineVariant = Color(0xFF1B1B1F),
+    error = CrimsonRose,
+    onError = Color(0xFF1A0508),
+    errorContainer = Color(0xFF3D141B),
+    onErrorContainer = Color(0xFFFFD9DE),
+    inverseSurface = TextPrimary,
+    inverseOnSurface = Color(0xFF17171A),
+    inversePrimary = Color(0xFF3F3F46),
+    scrim = Color.Black,
   )
 
 private val LightColorScheme =
   lightColorScheme(
-    primary = androidx.compose.ui.graphics.Color.Black,
-    onPrimary = androidx.compose.ui.graphics.Color.White,
-    secondary = androidx.compose.ui.graphics.Color(0xFF1C1C1E),
-    onSecondary = androidx.compose.ui.graphics.Color.White,
-    tertiary = androidx.compose.ui.graphics.Color(0xFF8E8E93),
-    background = androidx.compose.ui.graphics.Color(0xFFFFFFFF),
-    onBackground = androidx.compose.ui.graphics.Color(0xFF1C1C1E),
-    surface = androidx.compose.ui.graphics.Color(0xFFF2F2F7),
-    onSurface = androidx.compose.ui.graphics.Color(0xFF1C1C1E),
-    surfaceVariant = androidx.compose.ui.graphics.Color(0xFFE5E5EA),
-    onSurfaceVariant = androidx.compose.ui.graphics.Color(0xFF1C1C1E),
-    outline = androidx.compose.ui.graphics.Color(0xFFD1D1D6)
+    primary = Color(0xFF000000),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFE4E4E7),
+    onPrimaryContainer = Color(0xFF111113),
+    secondary = Color(0xFF1C1C1E),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFE4E4E7),
+    onSecondaryContainer = Color(0xFF111113),
+    tertiary = Color(0xFF52525B),
+    onTertiary = Color(0xFFFFFFFF),
+    background = Color(0xFFFAFAFA),
+    onBackground = Color(0xFF111113),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF111113),
+    surfaceVariant = Color(0xFFF0F0F2),
+    onSurfaceVariant = Color(0xFF3F3F46),
+    outline = Color(0xFFD4D4D8),
+    outlineVariant = Color(0xFFE9E9EC),
+    error = Color(0xFFE11D48),
+    onError = Color(0xFFFFFFFF),
+    errorContainer = Color(0xFFFFE4E6),
+    onErrorContainer = Color(0xFF4C0519),
+    inverseSurface = Color(0xFF1C1C1E),
+    inverseOnSurface = Color(0xFFF5F5F7),
+    inversePrimary = Color(0xFFE4E4E7),
+    scrim = Color.Black,
   )
 
 @Composable
@@ -60,5 +94,10 @@ fun MyApplicationTheme(
       else -> LightColorScheme
     }
 
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+  MaterialTheme(
+    colorScheme = colorScheme,
+    typography = Typography,
+    shapes = ZhypixShapes,
+    content = content,
+  )
 }
