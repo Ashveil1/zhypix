@@ -1211,6 +1211,14 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 ),
                 mapOf(
+                    "name" to "read_notifications",
+                    "description" to "Read the user's recent notifications saved on this device (last 24 hours, verification codes hidden). Requires the user to enable notification access.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
+                        "app" to mapOf("type" to "STRING", "description" to "Optional app name filter"),
+                        "limit" to mapOf("type" to "INTEGER")
+                    ))
+                ),
+                mapOf(
                     "name" to "schedule_routine",
                     "description" to "Save a screen task to run on a schedule while the app is open. Give either every_minutes (15 or more) or daily_at as HH:MM local time. Runs stop and ask the user before sensitive actions.",
                     "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
@@ -1754,6 +1762,11 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         ),
                         mapOf("type" to "function", "function" to mapOf(
+                            "name" to "read_notifications",
+                            "description" to "Read the user's recent notifications saved on this device (last 24 hours, verification codes hidden). Requires notification access.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf("app" to mapOf("type" to "string"), "limit" to mapOf("type" to "integer")))
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
                             "name" to "schedule_routine",
                             "description" to "Save a screen task to run on a schedule while the app is open. Give either every_minutes (15 or more) or daily_at as HH:MM local time. Runs stop and ask the user before sensitive actions.",
                             "parameters" to mapOf("type" to "object", "properties" to mapOf(
@@ -2180,6 +2193,17 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         )))
                     }
 
+                    "read_notifications" -> {
+                        val ctx = getApplication<android.app.Application>()
+                        val enabled = android.provider.Settings.Secure.getString(ctx.contentResolver, "enabled_notification_listeners").orEmpty().contains(ctx.packageName)
+                        val out = if (!enabled) mapOf("status" to "not_enabled", "message" to "Ask the user to enable Zhypix in Android notification access settings.")
+                        else {
+                            val items = com.example.service.ZhypixNotificationListener.log(ctx).recent(System.currentTimeMillis(),
+                                call.args?.get("app") as? String, (call.args?.get("limit") as? Number)?.toInt() ?: 10)
+                            mapOf("status" to "success", "notifications" to items.joinToString("\n") { "${it.app}: ${it.title} - ${it.text}" }.ifBlank { "No recent notifications." })
+                        }
+                        responseParts.add(Part(functionResponse = FunctionResponse(name = call.name, response = out)))
+                    }
                     "schedule_routine" -> {
                         val result = try {
                             val every = (call.args?.get("every_minutes") as? Number)?.toInt()
