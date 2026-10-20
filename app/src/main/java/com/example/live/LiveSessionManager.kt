@@ -128,6 +128,18 @@ class LiveSessionManager(
         ws.send(msg.toString())
     }
 
+    /** Stream one screen frame (base64 JPEG) as realtime video input. */
+    fun sendVideoFrame(base64Jpeg: String) {
+        val ws = webSocket ?: return
+        if (!setupComplete.get() || base64Jpeg.isBlank()) return
+        val msg = JSONObject()
+            .put("realtimeInput", JSONObject()
+                .put("video", JSONObject()
+                    .put("data", base64Jpeg)
+                    .put("mimeType", "image/jpeg")))
+        ws.send(msg.toString())
+    }
+
     /** Answer a tool call batch. Every call id from [onToolCalls] must get a response. */
     fun sendToolResponse(responses: List<Pair<ToolCallRequest, JSONObject>>) {
         val ws = webSocket ?: return
