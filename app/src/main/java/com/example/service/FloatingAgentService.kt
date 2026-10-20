@@ -1108,10 +1108,13 @@ class FloatingAgentService : Service() {
             val available = AgentViewModel.instance?.availableModels?.value ?: emptyList()
             val current = AgentViewModel.instance?.modelName?.value ?: ""
             
-            val modelsToShow = if (available.isNotEmpty()) {
-                available.map { it.modelId }.filter { it.isNotBlank() }
-            } else {
-                listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro", "gpt-4o", "gpt-3.5-turbo")
+            // Models come only from the provider's live model list; no hardcoded list.
+            val modelsToShow = available.map { it.modelId }.filter { it.isNotBlank() }
+
+            if (modelsToShow.isEmpty()) {
+                popup.menu.add(0, 0, 0, "No models - set provider & key in Settings")
+                popup.show()
+                return@setOnClickListener
             }
 
             modelsToShow.forEachIndexed { index, mId ->
@@ -1823,21 +1826,8 @@ class FloatingAgentService : Service() {
             return if (provider.isNotBlank()) "Default ($provider)" else "Select Model"
         }
         
-        val cleanId = modelId.removePrefix("models/")
-        return when (cleanId) {
-            "gemini-2.5-flash" -> "Gemini 2.5 Flash"
-            "gemini-2.5-pro" -> "Gemini 2.5 Pro"
-            "gemini-1.5-pro" -> "Gemini 1.5 Pro"
-            "gemini-1.5-flash" -> "Gemini 1.5 Flash"
-            "gpt-4o" -> "GPT-4o"
-            "gpt-4o-mini" -> "GPT-4o Mini"
-            "gpt-3.5-turbo" -> "GPT-3.5 Turbo"
-            "o1-mini" -> "o1-mini"
-            "claude-3-5-sonnet-20241022" -> "Claude 3.5 Sonnet"
-            "claude-3-haiku-20240307" -> "Claude 3 Haiku"
-            "claude-3-opus-20240229" -> "Claude 3 Opus"
-            else -> cleanId
-        }
+        // No hardcoded pretty-name table: show the provider-reported model id.
+        return modelId.removePrefix("models/")
     }
 
     private fun startSpeechToText() {

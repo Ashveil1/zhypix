@@ -555,9 +555,9 @@ fun ProviderAndModelSettings(viewModel: AgentViewModel) {
 
                         val providerOptions = listOf(
                             Triple("Gemini", "Google Gemini", "Google AI Studio • Fast & Free tier"),
-                            Triple("OpenAI", "OpenAI", "GPT-4o, GPT-4o-mini & o1"),
-                            Triple("Claude", "Anthropic Claude", "Sonnet 3.5 & Haiku"),
-                            Triple("Groq", "Groq Cloud", "Ultra-fast Llama 3 & Mixtral"),
+                            Triple("OpenAI", "OpenAI", "OpenAI cloud models"),
+                            Triple("Claude", "Anthropic Claude", "Anthropic cloud models"),
+                            Triple("Groq", "Groq Cloud", "Ultra-fast open-weight models"),
                             Triple("OpenRouter", "OpenRouter", "Unified API Gateway for all models"),
                             Triple("Ollama", "Ollama / Local API", "Localhost server or custom API"),
                             Triple("Custom", "Custom Named Provider", "Add custom endpoint or proxy")
@@ -587,15 +587,11 @@ fun ProviderAndModelSettings(viewModel: AgentViewModel) {
                                                     "OpenRouter" -> "https://openrouter.ai/api/v1"
                                                     else -> ""
                                                 }
-                                                wizardModelName = when (pId) {
-                                                    "Gemini" -> "gemini-2.5-flash"
-                                                    "Claude" -> "claude-3-5-sonnet-20241022"
-                                                    "OpenAI" -> "gpt-4o"
-                                                    "Groq" -> "llama3-70b-8192"
-                                                    "OpenRouter" -> "google/gemini-2.5-flash"
-                                                    else -> ""
-                                                }
-                                                modelSearchQuery = wizardModelName
+                                                // No hardcoded default model - it is chosen from the
+                                                // provider's fetched list in step 3.
+                                                wizardModelName = ""
+                                                modelSearchQuery = ""
+
                                             }
                                         }
                                 ) {
@@ -863,19 +859,9 @@ fun ProviderAndModelSettings(viewModel: AgentViewModel) {
                     LaunchedEffect(wizardProviderId, wizardBaseUrl, wizardApiKey) {
                         viewModel.fetchModels(wizardProviderId, wizardBaseUrl, wizardApiKey)
                     }
+                    // Models come only from the provider's live model list (Fetch Online).
                     val allPresetModels = remember(wizardProviderId, availableModels) {
-                        if (availableModels.isNotEmpty()) {
-                            availableModels.map { it.modelId }.filter { it.isNotBlank() }
-                        } else {
-                            when (wizardProviderId) {
-                                "Gemini" -> listOf("gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-flash", "gemini-1.5-pro")
-                                "OpenAI" -> listOf("gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo", "o1-mini")
-                                "Claude" -> listOf("claude-3-5-sonnet-20241022", "claude-3-haiku-20240307", "claude-3-opus-20240229")
-                                "Groq" -> listOf("llama3-70b-8192", "llama3-8b-8192", "mixtral-8x7b-32768")
-                                "OpenRouter" -> listOf("google/gemini-2.5-flash", "openai/gpt-4o", "anthropic/claude-3.5-sonnet")
-                                else -> emptyList()
-                            }
-                        }
+                        availableModels.map { it.modelId }.filter { it.isNotBlank() }
                     }
 
                     // Live Filter as User Types!
@@ -937,7 +923,7 @@ fun ProviderAndModelSettings(viewModel: AgentViewModel) {
                                 }
                             },
                             label = { Text("Filter or Type Custom Model Name", color = Color(0xFFA1A1AA)) },
-                            placeholder = { Text("e.g. gemini-2.5-flash", color = Color(0xFF52525B)) },
+                            placeholder = { Text("Fetch models, then filter or type a model id", color = Color(0xFF52525B)) },
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color.White,
                                 unfocusedBorderColor = Color(0xFF27272A),
@@ -950,7 +936,7 @@ fun ProviderAndModelSettings(viewModel: AgentViewModel) {
                         )
 
                         Text(
-                            text = if (filteredModels.isNotEmpty()) "Matching Models (${filteredModels.size}):" else "No exact matching preset found.",
+                            text = if (filteredModels.isNotEmpty()) "Matching Models (${filteredModels.size}):" else "No models loaded - tap Fetch Online, or type a custom model id above.",
                             color = Color(0xFFA1A1AA),
                             fontSize = 11.sp
                         )

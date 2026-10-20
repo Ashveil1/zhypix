@@ -312,22 +312,26 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
+    // Generic capability heuristic on the configured model id (AUTO vision mode).
+    // Works for any provider's naming; not a model selection list.
+    private fun modelSupportsVision(modelId: String): Boolean {
+        val lowerModel = modelId.lowercase()
+        return lowerModel.contains("gpt-4o") ||
+                lowerModel.contains("claude-3-5") ||
+                lowerModel.contains("claude-3.5") ||
+                lowerModel.contains("claude-3-opus") ||
+                lowerModel.contains("gemini") ||
+                lowerModel.contains("pixtral") ||
+                lowerModel.contains("vision")
+    }
+
     fun isVisionActive(): Boolean {
-        val callModel = if (_modelName.value.isNotBlank()) _modelName.value else if (_provider.value == "Gemini") "none" else "gpt-3.5-turbo"
+        val callModel = _modelName.value.trim() // no hardcoded default: blank means "not configured"
         val visionModeVal = _visionMode.value
         return when (visionModeVal) {
             "YES" -> true
             "NO" -> false
-            else -> {
-                val lowerModel = callModel.lowercase()
-                lowerModel.contains("gpt-4o") || 
-                        lowerModel.contains("claude-3-5") || 
-                        lowerModel.contains("claude-3.5") || 
-                        lowerModel.contains("claude-3-opus") || 
-                        lowerModel.contains("gemini") || 
-                        lowerModel.contains("pixtral") || 
-                        lowerModel.contains("vision")
-            }
+            else -> modelSupportsVision(callModel)
         }
     }
 
@@ -1435,7 +1439,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     val newSession = ChatSession(
                         title = if (text.length > 30) text.take(27) + "..." else text,
                         provider = _provider.value,
-                        modelName = if (_modelName.value.isNotBlank()) _modelName.value else if (_provider.value == "Gemini") "none" else "gpt-3.5-turbo"
+                        modelName = _modelName.value.trim()
                     )
                     val id = chatDao.insertSession(newSession)
                     currentSessionId = id
@@ -1938,16 +1942,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         val isVisionModel = when (visionModeVal) {
                             "YES" -> true
                             "NO" -> false
-                            else -> {
-                                val lowerModel = callModel.lowercase()
-                                lowerModel.contains("gpt-4o") || 
-                                        lowerModel.contains("claude-3-5") || 
-                                        lowerModel.contains("claude-3.5") || 
-                                        lowerModel.contains("claude-3-opus") || 
-                                        lowerModel.contains("gemini") ||
-                                        lowerModel.contains("pixtral") ||
-                                        lowerModel.contains("vision")
-                            }
+                            else -> modelSupportsVision(callModel)
                         }
                         
                         if (isVisionModel) {
@@ -3099,21 +3094,10 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             return realLength
         }
 
-        val lowerModel = callModel.lowercase()
-        return when {
-            lowerModel.contains("gemini") -> 1000000
-            lowerModel.contains("claude-3-opus") -> 256000
-            lowerModel.contains("claude-3.5-sonnet") -> 256000
-            lowerModel.contains("claude-3-sonnet") -> 256000
-            lowerModel.contains("claude-3-haiku") -> 256000
-            lowerModel.contains("gpt-4o") -> 256000
-            lowerModel.contains("gpt-4-turbo") -> 256000
-            lowerModel.contains("gpt-4") -> 256000
-            lowerModel.contains("gpt-3.5") -> 256000
-            lowerModel.contains("llama-3-70b") -> 256000
-            lowerModel.contains("llama-3-8b") -> 256000
-            else -> 1000000 // Safe high default for unknown/unrecognized models so we don't restrict or prune context unnecessarily
-        }
+        // Unknown model: safe high default so we don't restrict or prune context
+        // unnecessarily. The dynamic lookup above (from the provider's model list)
+        // is the preferred source; no hardcoded per-model table.
+        return 1000000
     }
 
     private fun sanitizeAndTruncateToolOutput(text: String, maxLength: Int): String {
