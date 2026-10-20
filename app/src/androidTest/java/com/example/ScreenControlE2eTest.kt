@@ -143,15 +143,18 @@ class ScreenControlE2eTest {
     @Test
     fun uiAutomationTypeIntoSearch() {
         openSettings()
-        // AOSP Settings main page exposes search as a toolbar action with a
-        // content-description; clicking it opens the real search field.
+        // Probe run: always dump the Settings homepage hierarchy so CI shows
+        // exactly which search affordance this API level exposes.
+        try { device.dumpWindowHierarchy("/data/local/tmp/e2e_window_settings.xml") } catch (e: Exception) {
+            android.util.Log.e("E2E-DIAG", "dump failed", e)
+        }
         val searchAction = device.wait(Until.findObject(By.desc("Search")), 4_000)
             ?: device.findObject(By.textContains("Search"))
         if (searchAction != null) searchAction.click()
         Thread.sleep(1500)
+        try { device.dumpWindowHierarchy("/data/local/tmp/e2e_window_search.xml") } catch (e: Exception) {}
         var field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 6_000)
         if (field == null) {
-            try { device.dumpWindowHierarchy("/sdcard/e2e_window_search.xml") } catch (e: Exception) {}
             field = device.wait(Until.findObject(By.clazz("android.widget.AutoCompleteTextView")), 3_000)
         }
         assertNotNull("No editable search field after opening Settings search", field)
