@@ -1210,6 +1210,20 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 ),
                 mapOf(
+                    "name" to "recall_memory",
+                    "description" to "Look up facts the user asked you to remember. Use before saying you do not know something personal.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
+                        "query" to mapOf("type" to "STRING", "description" to "Keywords to look for")
+                    ), "required" to listOf("query"))
+                ),
+                mapOf(
+                    "name" to "forget_memory",
+                    "description" to "Permanently delete remembered facts matching the keywords. Only when the user asks you to forget something.",
+                    "parameters" to mapOf("type" to "OBJECT", "properties" to mapOf(
+                        "query" to mapOf("type" to "STRING", "description" to "Keywords identifying what to forget")
+                    ), "required" to listOf("query"))
+                ),
+                mapOf(
                     "name" to "execute_linux_command",
                     "description" to "Execute a real linux / bash command inside the local PRoot guest environment sandbox (e.g., ls, pwd, neofetch, apt install, python3). Returns the exact standard output from the guest bash terminal shell.",
                     "parameters" to mapOf(
@@ -1718,6 +1732,16 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             )
                         ),
+                        mapOf("type" to "function", "function" to mapOf(
+                            "name" to "recall_memory",
+                            "description" to "Look up facts the user asked you to remember. Use before saying you do not know something personal.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf("query" to mapOf("type" to "string")), "required" to listOf("query"))
+                        )),
+                        mapOf("type" to "function", "function" to mapOf(
+                            "name" to "forget_memory",
+                            "description" to "Permanently delete remembered facts matching the keywords. Only when the user asks you to forget something.",
+                            "parameters" to mapOf("type" to "object", "properties" to mapOf("query" to mapOf("type" to "string")), "required" to listOf("query"))
+                        )),
                         mapOf(
                             "type" to "function",
                             "function" to mapOf(
@@ -2119,11 +2143,29 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         )))
                     }
 
+                    "recall_memory" -> {
+                        val q = call.args?.get("query") as? String ?: ""
+                        val notes = agentMemory.recall(q).map { it.text }
+                        addReasoningStep("Memory recall", "Query '$q' matched ${notes.size} note(s).", "SUCCESS", "TOOL")
+                        responseParts.add(Part(functionResponse = FunctionResponse(
+                            name = call.name, response = mapOf("status" to "success", "matches" to notes.joinToString("\n").ifBlank { "Nothing remembered about that." })
+                        )))
+                    }
+                    "forget_memory" -> {
+                        val q = call.args?.get("query") as? String ?: ""
+                        val removed = agentMemory.forgetMatching(q)
+                        runCatching { prefDao.deletePreference(q.trim()) }
+                        addReasoningStep("Memory forget", "Query '$q' removed $removed note(s).", "SUCCESS", "TOOL")
+                        responseParts.add(Part(functionResponse = FunctionResponse(
+                            name = call.name, response = mapOf("status" to "success", "removed" to removed.toString())
+                        )))
+                    }
                     "remember_preference" -> {
                         val k = call.args?.get("key") as? String ?: ""
                         val v = call.args?.get("value") as? String ?: ""
                         addReasoningStep("Remember preference tool called", "Key: '$k', Value: '$v'. Saving preference values.", "RUNNING", "TOOL")
                         prefDao.insertPreference(UserPreference(k, v))
+                        try { agentMemory.remember("$k: $v", System.currentTimeMillis()) } catch (_: Exception) {}
                         _messages.value += ChatMessage.TaskExecution(AgentAction("MEMORY", "Saved: $k = $v"), "Completed")
                         addReasoningStep("Memory preference recorded", "Preference SQLite table synchronization succeeded.", "SUCCESS", "TOOL")
                         
@@ -2515,6 +2557,10 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         val terminal = loop.run()
         try { needsYouStore.record(task, terminal, System.currentTimeMillis()) } catch (_: Exception) { /* persistence must never break the task result */ }
         return terminal
+    }
+
+    private val agentMemory by lazy {
+        com.example.agent.AgentMemory(com.example.agent.JsonListStore(java.io.File(getApplication<android.app.Application>().filesDir, "agent-memory.json")))
     }
 
     private val needsYouStore by lazy {
