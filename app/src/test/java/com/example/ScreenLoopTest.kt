@@ -35,6 +35,10 @@ class ScreenLoopTest {
         },sleep={delays.add(it)})
         loop.run();assertEquals(2,executions);assertEquals(listOf(1000L),delays)
     }
+    @Test fun confirmationStopsBeforeDispatch() = runTest {
+        val loop=ScreenLoop({observation()}, { _, _ -> "press_back()" }, {fail("must not execute");ScreenLoop.Execution(true,"")},sleep={},confirmBefore={"Confirm?"})
+        assertEquals(ScreenAction.NeedsConfirmation("Confirm?"),loop.run())
+    }
     @Test fun cancellationNeverRetries() = runTest {
         var captures=0
         val loop=ScreenLoop({captures++;throw CancellationException()}, { _, _ -> "" }, {ScreenLoop.Execution(true,"")},sleep={fail("must not sleep")})

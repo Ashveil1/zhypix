@@ -2509,7 +2509,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 _agentState.value = AgentState.THINKING
                 result
             },
-            onStep = { step, max -> _currentStep.value = step; _maxStepsPerTask.value = max }
+            onStep = { step, max -> _currentStep.value = step; _maxStepsPerTask.value = max },
+            confirmBefore = { action -> kotlinx.coroutines.withContext(Dispatchers.Main.immediate) { service.device.confirmationQuestion(action) } }
         )
         return loop.run()
     }

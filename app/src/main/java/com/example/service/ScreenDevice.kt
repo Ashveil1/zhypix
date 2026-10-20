@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.example.agent.ScreenAction
 import com.example.agent.ScreenLoop
 import com.example.agent.ScreenPolicy
+import com.example.agent.ScreenSafety
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -35,6 +36,34 @@ class ScreenDevice(private val service: ZhypixAccessibilityService) {
             is ScreenAction.Walkthrough -> ScreenLoop.Execution(false, "Guide requires user participation: ${action.steps}")
             is ScreenAction.Terminal -> ScreenLoop.Execution(false, "Terminal must be handled by the loop")
         }
+    }
+
+    /** Resolve visible labels locally; never let a model assert that confirmation already exists. */
+    fun confirmationQuestion(action: ScreenAction): String? {
+        val point=when(action) {
+            is ScreenAction.Click -> action.x to action.y
+            is ScreenAction.DoubleClick -> action.x to action.y
+            is ScreenAction.PressAndHold -> action.x to action.y
+            else -> return null
+        }
+        val root=service.rootInActiveWindow ?: return "Cannot verify the current target. Please check the screen before continuing."
+        var count=0
+        fun inspect(node:AccessibilityNodeInfo,depth:Int):String? {
+            if(count++>=ScreenPolicy.TREE_NODE_LIMIT || depth>ScreenPolicy.TREE_DEPTH_LIMIT)return null
+            val bounds=Rect();node.getBoundsInScreen(bounds)
+            if(node.isVisibleToUser && bounds.contains(point.first,point.second)) {
+                val label="${node.text ?: ""} ${node.contentDescription ?: ""}"
+                if(ScreenSafety.requiresConfirmation(label))return label.trim()
+                for(i in 0 until node.childCount) {
+                    val child=node.getChild(i)?:continue
+                    val result=try{inspect(child,depth+1)}finally{child.recycle()}
+                    if(result!=null)return result
+                }
+            }
+            return null
+        }
+        val target=try{inspect(root,0)}finally{root.recycle()}
+        return target?.let {"Please confirm this screen action: $it"}
     }
 
     private fun validPoint(x: Int, y: Int): Boolean {

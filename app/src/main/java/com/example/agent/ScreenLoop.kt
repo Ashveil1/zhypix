@@ -10,7 +10,8 @@ class ScreenLoop(
     private val decide: suspend (Observation, List<String>) -> String,
     private val execute: suspend (ScreenAction) -> Execution,
     private val onStep: (Int, Int) -> Unit = { _, _ -> },
-    private val sleep: suspend (Long) -> Unit = { delay(it) }
+    private val sleep: suspend (Long) -> Unit = { delay(it) },
+    private val confirmBefore: suspend (ScreenAction) -> String? = { null }
 ) {
     data class Observation(val image: String?, val phoneState: String, val metadata: String)
     data class Execution(val success: Boolean, val message: String, val safeToRetry: Boolean = false)
@@ -35,6 +36,7 @@ class ScreenLoop(
                     ?: return ScreenAction.FailedToCompleteTask("The model returned an invalid action twice.")
                 if (action is ScreenAction.Terminal) return action
                 if (action is ScreenAction.Walkthrough) return ScreenAction.MessageUser(action.steps)
+                confirmBefore(action)?.let { return ScreenAction.NeedsConfirmation(it) }
                 var result = execute(action)
                 if (!result.success && result.safeToRetry) {
                     sleep(ScreenPolicy.STAGE_RETRY_MS)
