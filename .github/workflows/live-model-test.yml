@@ -10,6 +10,10 @@ on:
         description: Instrumentation method to run
         default: modelNavigatesSettingsWithoutChangingAnything
         required: true
+      test_class:
+        description: Instrumentation test class
+        default: LiveModelE2eTest
+        required: true
       profile:
         description: Emulator device profile
         default: pixel_5
@@ -71,7 +75,7 @@ jobs:
             adb shell run-as com.zhypix.app.jdufyx cp /data/local/tmp/live-model-test.json files/live-model-test.json
             adb shell rm /data/local/tmp/live-model-test.json
             rm -f /tmp/live-model-test.json
-            adb shell am instrument -w -e class com.example.LiveModelE2eTest#${{ inputs.test_method }} com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee live-model-result.txt
+            adb shell am instrument -w -e class com.example.${{ inputs.test_class }}#${{ inputs.test_method }} com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee live-model-result.txt
             adb exec-out run-as com.zhypix.app.jdufyx cat files/live-model-evidence.txt > live-model-evidence.txt || true
             adb exec-out run-as com.zhypix.app.jdufyx cat files/live-model-final.xml > live-model-final.xml || true
             adb shell screencap -p /sdcard/live-model-final.png
