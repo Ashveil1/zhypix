@@ -20,6 +20,8 @@ import com.example.db.UserPreference
 import com.example.db.ChatSession
 import com.example.db.ChatMessageEntity
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +49,13 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         instance = this
+        // The floating controller bubble dims and goes click-through whenever
+        // the agent is mid-task so it neither covers targets nor eats taps.
+        viewModelScope.launch {
+            _isProcessing.collect { active ->
+                try { com.example.service.FloatingAgentService.instance?.setAgentActive(active) } catch (e: Exception) {}
+            }
+        }
     }
 
     private val appScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
@@ -1798,8 +1807,8 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     ========================================
                     - Screen Width: $screenWidth px | Screen Height: $screenHeight px | Density: $screenDensity
                     - All CLICK/TAP coordinates MUST lie within [0, $screenWidth] range for X, and [0, $screenHeight] range for Y.
-                    - IMPORTANT COORDINATE MAPPING: the screenshot image you see is SMALLER than the real screen (its size is given with each post-action snapshot), but Bounds=/Center= values in the Screen Hierarchy are RAW screen pixels. ALWAYS take coordinates from hierarchy Bounds/Center values, never by estimating pixel positions in the image.
-                    - Target coordinate space for CLICK/TAP and SWIPE actions must use the RAW FULL RESOLUTION coordinate space [0 to $screenWidth, 0 to $screenHeight] from node `Center=(X,Y)` or `Bounds=(left,top)->(right,bottom)`.
+                    - COORDINATE SPACE: hierarchy Bounds=/Center= values and the screenshot image share ONE coordinate space (the screenshot image's pixel space, whose size is given with each post-action snapshot). Emit Bounds/Center values EXACTLY as printed for CLICK/LONG_PRESS/DOUBLE_CLICK/SWIPE targets - the executor maps them to the physical screen automatically. Never rescale coordinates yourself and never estimate pixel positions from the image alone; always prefer the printed Bounds/Center of the target element.
+                    - Prefer CLICK with the element's visible Text or Desc when available; use coordinates only when no text target exists.
 
                     ========================================
                     === AUTOMATED YOUTUBE AD-SKIPPER ACTIVE ===
@@ -3080,27 +3089,21 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                             // and app launches break early instead of always waiting 1200ms.
                             _lastScreenshot.value = null
                             service.invalidateScreenshotCache()
+                            // Screenshot capture is callback-based and mostly idle
+                            // waiting; run it concurrently with the tree dump so a
+                            // step costs max(tree, shot) instead of tree + shot.
+                            val wantsVision = isVisionActive()
+                            val shotStartMs = System.currentTimeMillis()
+                            val shotDeferred = if (wantsVision) kotlinx.coroutines.GlobalScope.async(kotlinx.coroutines.Dispatchers.Main.immediate) {
+                                service.awaitFrameSettle(maxWaitMs = 3500L, forceFresh = true)
+                            } else null
                             val snapshot = com.example.agent.Perception.settleAndSnapshot(service, isAppLaunch = normAct == "OPEN_APP")
-                            postActionHierarchy = "[Screen: " + service.resources.displayMetrics.widthPixels + "x" + service.resources.displayMetrics.heightPixels + " raw px; screenshot image: " + service.lastModelScreenshotWidth + "x" + service.lastModelScreenshotHeight + " px - use hierarchy Bounds/Center (raw px) for coordinates]\n" + snapshot.hierarchy
+                            postActionHierarchy = "[Screen: " + service.resources.displayMetrics.widthPixels + "x" + service.resources.displayMetrics.heightPixels + " raw px; coordinates below use the screenshot-image space " + service.lastModelScreenshotWidth + "x" + service.lastModelScreenshotHeight + " px - emit Bounds/Center values as-is]\n" + snapshot.hierarchy
                             addReasoningStep("Post-Action Event Settle (${snapshot.settleMs}ms)", "Accessibility event stream quiet after $act.", "RUNNING", "SYSTEM")
-                            addReasoningStep("Step timing", "execute ${actionOutcome.executeMs}ms, settle ${snapshot.settleMs}ms, tree ${snapshot.captureMs}ms", "INFO", "SYSTEM")
-                            com.example.agent.AgentDiagnostics.recordActionStep(
-                                step = _currentStep.value,
-                                action = act,
-                                target = tgt,
-                                success = actionResult.success,
-                                message = actionResult.message,
-                                executeMs = actionOutcome.executeMs,
-                                settleMs = snapshot.settleMs,
-                                captureMs = snapshot.captureMs,
-                                treeSize = snapshot.hierarchy.length
-                            )
 
-                            // Capture a screenshot only when the active model can actually
-                            // see it. In tree-only mode this saves up to 3.5s per step.
-                            if (isVisionActive()) {
+                            if (wantsVision) {
                                 addReasoningStep("Capturing Post-Action Viewport", "Taking viewport screenshot after $act...", "RUNNING", "SYSTEM")
-                                base64Img = service.awaitFrameSettle(maxWaitMs = 3500L, forceFresh = true)
+                                base64Img = try { shotDeferred?.await() } catch (e: Exception) { null }
                                 if (base64Img != null) {
                                     _lastScreenshot.value = base64Img
                                     _lastHierarchy.value = postActionHierarchy
@@ -3113,6 +3116,20 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                                 _lastHierarchy.value = postActionHierarchy
                                 addReasoningStep("Viewport snapshot skipped (tree-only mode)", "Active model has no vision; using layout hierarchy only. Screenshot capture skipped.", "SUCCESS", "SYSTEM")
                             }
+                            val shotMs = if (wantsVision) System.currentTimeMillis() - shotStartMs else 0L
+                            addReasoningStep("Step timing", "execute ${actionOutcome.executeMs}ms, settle ${snapshot.settleMs}ms, tree ${snapshot.captureMs}ms, shot ${shotMs}ms", "INFO", "SYSTEM")
+                            com.example.agent.AgentDiagnostics.recordActionStep(
+                                step = _currentStep.value,
+                                action = act,
+                                target = tgt,
+                                success = actionResult.success,
+                                message = actionResult.message,
+                                executeMs = actionOutcome.executeMs,
+                                settleMs = snapshot.settleMs,
+                                captureMs = snapshot.captureMs,
+                                treeSize = snapshot.hierarchy.length,
+                                shotMs = shotMs
+                            )
                         }
 
                         // State-diff loop detection & Local Verifier

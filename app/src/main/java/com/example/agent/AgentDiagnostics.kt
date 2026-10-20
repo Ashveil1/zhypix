@@ -52,7 +52,8 @@ object AgentDiagnostics {
         executeMs: Long,
         settleMs: Long,
         captureMs: Long,
-        treeSize: Int
+        treeSize: Int,
+        shotMs: Long = 0
     ) {
         val o = JSONObject()
         o.put("ts", System.currentTimeMillis())
@@ -66,6 +67,7 @@ object AgentDiagnostics {
         o.put("settleMs", settleMs)
         o.put("captureMs", captureMs)
         o.put("treeSize", treeSize)
+        o.put("shotMs", shotMs)
         append(o)
         Log.d("Zhypix", "diag step=$step $action success=$success exec=${executeMs}ms settle=${settleMs}ms tree=$treeSize")
     }

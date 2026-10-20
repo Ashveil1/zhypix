@@ -55,7 +55,8 @@ class ZhypixAccessibilityService : AccessibilityService() {
                 flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                        WindowManager.LayoutParams.FLAG_SECURE
                 width = WindowManager.LayoutParams.MATCH_PARENT
                 height = WindowManager.LayoutParams.MATCH_PARENT
                 gravity = android.view.Gravity.TOP or android.view.Gravity.START
@@ -219,9 +220,11 @@ class ZhypixAccessibilityService : AccessibilityService() {
         }
 
         // Human-like Gaussian jitter and fast responsive touch dwell time.
-        // When element bounds are known the jitter is constrained inside the
-        // element so small targets are never missed because of jitter.
-        val (targetX, targetY) = BezierGestureSynthesizer.applyHumanClickJitter(x, y, bounds)
+        // When element bounds are known (or discoverable from the tree) the
+        // jitter is constrained inside the element so small targets are never
+        // missed because of jitter.
+        val effectiveBounds = bounds ?: clickableBoundsContaining(x, y)
+        val (targetX, targetY) = BezierGestureSynthesizer.applyHumanClickJitter(x, y, effectiveBounds)
 
         val path = Path()
         path.moveTo(targetX, targetY)
@@ -280,6 +283,13 @@ class ZhypixAccessibilityService : AccessibilityService() {
      * clickable element sits near the raw point, which means the model used
      * hierarchy coordinates after all.
      */
+    /**
+     * Model coordinates arrive in the screenshot-image pixel space (long side
+     * ~lastModelScreenshotWidth/Height); the physical screen is larger. Pure
+     * rescale into raw screen pixels - no snapping here, so swipe/drag paths
+     * stay undistorted. Values that already exceed the image bounds are
+     * assumed to be raw pixels and pass through.
+     */
     fun mapScreenshotSpaceToScreen(x: Float, y: Float): Pair<Float, Float> {
         val shotW = lastModelScreenshotWidth
         val shotH = lastModelScreenshotHeight
@@ -289,43 +299,59 @@ class ZhypixAccessibilityService : AccessibilityService() {
         val scrW = dm.widthPixels.toFloat()
         val scrH = dm.heightPixels.toFloat()
         if (scrW <= shotW * 1.1f && scrH <= shotH * 1.1f) return Pair(x, y)
-        if (hasClickableNodeCenterNear(x, y, 96f)) return Pair(x, y)
         val sx = x * scrW / shotW
         val sy = y * scrH / shotH
-        Log.w("Zhypix", "Rescaled screenshot-space coordinate ($x,$y) -> ($sx,$sy); shot=${shotW}x${shotH} screen=${scrW}x${scrH}")
-        com.example.agent.AgentDiagnostics.recordEvent("action", "rescaled screenshot-space coords ($x,$y) -> ($sx,$sy); shot=${shotW}x${shotH} screen=${scrW}x${scrH}")
+        Log.d("Zhypix", "Rescaled screenshot-space coordinate ($x,$y) -> ($sx,$sy); shot=${shotW}x${shotH} screen=${scrW}x${scrH}")
         return Pair(sx, sy)
     }
 
-    private fun hasClickableNodeCenterNear(x: Float, y: Float, radiusPx: Float): Boolean {
-        val root = try { rootInActiveWindow } catch (e: Exception) { null } ?: return false
-        val found = try { clickableCenterNearRec(root, x, y, radiusPx, 0) } catch (e: Exception) { false }
-        try { root.recycle() } catch (e: Exception) {}
-        return found
+    /** Scale from raw screen pixels into the model's screenshot-image space, or null when no screenshot has been sent yet. */
+    private fun modelSpaceScale(): Pair<Float, Float>? {
+        val shotW = lastModelScreenshotWidth
+        val shotH = lastModelScreenshotHeight
+        if (shotW <= 0 || shotH <= 0) return null
+        val dm = resources.displayMetrics
+        return Pair(shotW / dm.widthPixels.toFloat(), shotH / dm.heightPixels.toFloat())
     }
 
-    private fun clickableCenterNearRec(node: AccessibilityNodeInfo?, x: Float, y: Float, radiusPx: Float, depth: Int): Boolean {
-        if (node == null || depth > 20) return false
-        try {
-            if (node.isClickable && node.isVisibleToUser) {
-                val r = Rect()
-                node.getBoundsInScreen(r)
-                if (r.width() > 0 && r.height() > 0) {
-                    val dx = r.centerX() - x
-                    val dy = r.centerY() - y
-                    if (dx * dx + dy * dy <= radiusPx * radiusPx) return true
+    /**
+     * Bounds of the smallest visible clickable node containing the raw-px
+     * point, or null. Used to constrain tap jitter to the actual target when
+     * no explicit element bounds are known.
+     */
+    private fun clickableBoundsContaining(x: Float, y: Float): Rect? {
+        val root = try { rootInActiveWindow } catch (e: Exception) { null } ?: return null
+        var best: Rect? = null
+        var bestArea = Long.MAX_VALUE
+        val stack = ArrayDeque<Pair<AccessibilityNodeInfo, Int>>()
+        stack.add(root to 0)
+        while (stack.isNotEmpty()) {
+            val (n, d) = stack.removeFirst()
+            if (d > 20) {
+                if (n !== root) try { n.recycle() } catch (e: Exception) {}
+                continue
+            }
+            try {
+                if (n.isClickable && n.isVisibleToUser) {
+                    val r = Rect()
+                    n.getBoundsInScreen(r)
+                    if (r.width() > 0 && r.height() > 0 && r.contains(x.toInt(), y.toInt())) {
+                        val area = r.width().toLong() * r.height().toLong()
+                        if (area < bestArea) {
+                            bestArea = area
+                            best = r
+                        }
+                    }
                 }
+            } catch (e: Exception) {}
+            for (i in 0 until n.childCount) {
+                val c = try { n.getChild(i) } catch (e: Exception) { null }
+                if (c != null) stack.add(c to d + 1)
             }
-        } catch (e: Exception) {}
-        for (i in 0 until node.childCount) {
-            val child = try { node.getChild(i) } catch (e: Exception) { null }
-            if (child != null) {
-                val hit = clickableCenterNearRec(child, x, y, radiusPx, depth + 1)
-                try { child.recycle() } catch (e: Exception) {}
-                if (hit) return true
-            }
+            if (n !== root) try { n.recycle() } catch (e: Exception) {}
         }
-        return false
+        try { root.recycle() } catch (e: Exception) {}
+        return best
     }
 
     private suspend fun dispatchGestureAndAwait(builder: GestureDescription.Builder, feedbackX: Float, feedbackY: Float): Boolean {
@@ -508,6 +534,9 @@ class ZhypixAccessibilityService : AccessibilityService() {
     fun getActiveWindowHierarchy(): String {
         val builder = StringBuilder()
         traverseBudget.set(400)
+        if (modelSpaceScale() != null) {
+            builder.append("[Coordinates below use the screenshot-image pixel space ${lastModelScreenshotWidth}x${lastModelScreenshotHeight} - emit Bounds/Center values as-is for CLICK targets]\n")
+        }
         
         // Capture all interactive windows to avoid being "blinded" by our overlay window
         val windowList = try {
@@ -610,8 +639,14 @@ class ZhypixAccessibilityService : AccessibilityService() {
 
                 if (text.isNotEmpty()) builder.append("Text=\"$text\" ")
                 if (contentDesc.isNotEmpty()) builder.append("Desc=\"$contentDesc\" ")
-                builder.append("Bounds=(${bounds.left},${bounds.top})->(${bounds.right},${bounds.bottom}) ")
-                builder.append("Center=($centerX,$centerY) ")
+                val ms = modelSpaceScale()
+                if (ms != null) {
+                    builder.append("Bounds=(${(bounds.left * ms.first).toInt()},${(bounds.top * ms.second).toInt()})->(${(bounds.right * ms.first).toInt()},${(bounds.bottom * ms.second).toInt()}) ")
+                    builder.append("Center=(${(centerX * ms.first).toInt()},${(centerY * ms.second).toInt()}) ")
+                } else {
+                    builder.append("Bounds=(${bounds.left},${bounds.top})->(${bounds.right},${bounds.bottom}) ")
+                    builder.append("Center=($centerX,$centerY) ")
+                }
                 if (isClickable) builder.append("Clickable ")
                 if (isScrollable) builder.append("Scrollable ")
                 if (isFocused) builder.append("Focused ")

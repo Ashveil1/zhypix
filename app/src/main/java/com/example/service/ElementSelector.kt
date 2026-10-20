@@ -83,6 +83,21 @@ object ElementResolver {
             selector
         }
 
+        // Model coordinates arrive in the screenshot-image pixel space; rescale
+        // to raw screen pixels BEFORE point-in-bounds matching. Without this a
+        // screenshot-space point silently matches a node up-left of the real
+        // target (the "taps a random element" bug).
+        val screenSelector = if (effectiveSelector.x != null && effectiveSelector.y != null) {
+            val (sx, sy) = service.mapScreenshotSpaceToScreen(effectiveSelector.x, effectiveSelector.y)
+            if (sx != effectiveSelector.x || sy != effectiveSelector.y) {
+                effectiveSelector.copy(x = sx, y = sy)
+            } else {
+                effectiveSelector
+            }
+        } else {
+            effectiveSelector
+        }
+
         val rootNodes = mutableListOf<AccessibilityNodeInfo>()
         try {
             val windowList = service.windows
@@ -109,7 +124,7 @@ object ElementResolver {
         val candidates = mutableListOf<MatchCandidate>()
 
         for (root in rootNodes) {
-            searchNodes(root, effectiveSelector, candidates)
+            searchNodes(root, screenSelector, candidates)
         }
 
         if (candidates.isEmpty()) {
