@@ -6,6 +6,14 @@ on:
         description: Free vision model ID, test configuration only
         default: minimax/minimax-m3.1-flash:free
         required: true
+      test_method:
+        description: Instrumentation method to run
+        default: modelNavigatesSettingsWithoutChangingAnything
+        required: true
+      profile:
+        description: Emulator device profile
+        default: pixel_5
+        required: true
 permissions:
   contents: read
 jobs:
@@ -54,6 +62,7 @@ jobs:
           arch: x86_64
           target: default
           disable-animations: true
+          profile: ${{ inputs.profile }}
           script: |
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
@@ -62,7 +71,7 @@ jobs:
             adb shell run-as com.zhypix.app.jdufyx cp /data/local/tmp/live-model-test.json files/live-model-test.json
             adb shell rm /data/local/tmp/live-model-test.json
             rm -f /tmp/live-model-test.json
-            adb shell am instrument -w -e class com.example.LiveModelE2eTest com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee live-model-result.txt
+            adb shell am instrument -w -e class com.example.LiveModelE2eTest#${{ inputs.test_method }} com.zhypix.app.jdufyx.test/androidx.test.runner.AndroidJUnitRunner | tee live-model-result.txt
             adb exec-out run-as com.zhypix.app.jdufyx cat files/live-model-evidence.txt > live-model-evidence.txt || true
             adb exec-out run-as com.zhypix.app.jdufyx cat files/live-model-final.xml > live-model-final.xml || true
             adb shell screencap -p /sdcard/live-model-final.png
