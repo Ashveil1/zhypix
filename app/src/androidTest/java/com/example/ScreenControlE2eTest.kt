@@ -143,15 +143,20 @@ class ScreenControlE2eTest {
     @Test
     fun uiAutomationTypeIntoSearch() {
         openSettings()
-        // The main Settings page hosts a search field directly; its hint text
-        // is not reliably exposed to accessibility, so target the EditText.
-        val bar = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 8_000)
-        assertNotNull("Settings search field not found on main page", bar)
-        bar.click()
+        // AOSP Settings main page exposes search as a toolbar action with a
+        // content-description; clicking it opens the real search field.
+        val searchAction = device.wait(Until.findObject(By.desc("Search")), 4_000)
+            ?: device.findObject(By.textContains("Search"))
+        if (searchAction != null) searchAction.click()
         Thread.sleep(1500)
-        val field = device.wait(Until.findObject(By.clazz("android.widget.EditText").focused(true)), 5_000)
-            ?: device.findObject(By.clazz("android.widget.EditText"))
-        assertNotNull("No EditText after clicking search field", field)
+        var field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 6_000)
+        if (field == null) {
+            try { device.dumpWindowHierarchy("/sdcard/e2e_window_search.xml") } catch (e: Exception) {}
+            field = device.wait(Until.findObject(By.clazz("android.widget.AutoCompleteTextView")), 3_000)
+        }
+        assertNotNull("No editable search field after opening Settings search", field)
+        field.click()
+        Thread.sleep(800)
         field.text = "wifi"
         Thread.sleep(1500)
         val typed = device.findObject(By.textContains("wifi"))
