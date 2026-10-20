@@ -1123,8 +1123,17 @@ class ZhypixAccessibilityService : AccessibilityService() {
                                                 val dHash = com.example.utils.SettleTelemetryLogger.calculateDHash(softwareBitmap)
                                                 val outputStream = java.io.ByteArrayOutputStream()
                                                 
-                                                val scaleFactor = com.example.viewmodel.AgentViewModel.instance?.screenshotScale?.value ?: 0.5f
-                                                val quality = com.example.viewmodel.AgentViewModel.instance?.screenshotQuality?.value ?: 60
+                                                val baseScale = com.example.viewmodel.AgentViewModel.instance?.screenshotScale?.value ?: 0.5f
+                                                val maxLongSide = com.example.viewmodel.AgentViewModel.instance?.screenshotMaxLongSide?.value ?: 780
+                                                val quality = com.example.viewmodel.AgentViewModel.instance?.screenshotQuality?.value ?: 75
+                                                // Cap the long side so images stay near the model's
+                                                // preferred size regardless of device resolution.
+                                                val scaleFactor = if (maxLongSide > 0) {
+                                                    val longSide = maxOf(softwareBitmap.width, softwareBitmap.height).toFloat()
+                                                    minOf(baseScale, maxLongSide / longSide).coerceAtLeast(0.1f)
+                                                } else {
+                                                    baseScale
+                                                }
                                                 
                                                 val targetWidth = (softwareBitmap.width * scaleFactor).toInt().coerceAtLeast(100)
                                                 val targetHeight = (softwareBitmap.height * scaleFactor).toInt().coerceAtLeast(100)
