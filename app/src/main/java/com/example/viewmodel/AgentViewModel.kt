@@ -1439,7 +1439,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                     val newSession = ChatSession(
                         title = if (text.length > 30) text.take(27) + "..." else text,
                         provider = _provider.value,
-                        modelName = _modelName.value.trim()"
+                        modelName = _modelName.value.trim()
                     )
                     val id = chatDao.insertSession(newSession)
                     currentSessionId = id
