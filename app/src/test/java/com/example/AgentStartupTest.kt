@@ -13,7 +13,7 @@ import org.robolectric.annotation.Config
 @Config(sdk=[35])
 class AgentStartupTest {
     @Test fun processingFlowExistsBeforeCollectorStarts() {
-        val vm=AgentViewModel(RuntimeEnvironment.getApplication<Application>())
+        val vm=AgentViewModel(RuntimeEnvironment.getApplication())
         assertFalse(vm.isProcessing.value)
     }
 }
