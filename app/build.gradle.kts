@@ -54,6 +54,7 @@ android {
     }
     create("beta") {
       initWith(getByName("debug"))
+      matchingFallbacks += listOf("debug")
       isMinifyEnabled = true
       isShrinkResources = true
       isDebuggable = false
