@@ -8,6 +8,9 @@ import com.zhypix.fresh.agent.AgentLoop
 import com.zhypix.fresh.api.ChatClient
 import com.zhypix.fresh.data.ProviderStore
 import com.zhypix.fresh.service.AgentAccessibilityService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertNotNull
@@ -20,6 +23,12 @@ import java.util.concurrent.atomic.AtomicInteger
  * End-to-end with the real free model: seed a provider, bind the accessibility
  * service, and let the agent drive the phone for a few steps. Asserts the
  * pipeline (perception -> model -> parse -> gesture) actually executes.
+ *
+ * The loop runs on Dispatchers.Main, the same dispatcher the app's ViewModel
+ * uses. Gesture callbacks are delivered on the main looper, so any blocking
+ * call on the main thread deadlocks the loop (the ANR seen on a physical
+ * phone). The bounded await turns that deadlock into a fast, clear failure
+ * instead of a hung run.
  *
  * UiAutomation is opened with DONT_SUPPRESS so acquiring it does not switch
  * our accessibility service off, and the service is re-bound from inside the
@@ -73,29 +82,39 @@ class LiveModelE2eTest {
         assertNotNull("accessibility service never bound", service)
 
         val client = ChatClient(BASE_URL, key, MODEL)
-        val loop = AgentLoop(service, client, null, maxSteps = 8, settleMs = 800, postActionDelayMs = 200)
+        val loop = AgentLoop(service, client, null, maxSteps = 10, settleMs = 800, postActionDelayMs = 200)
         val steps = AtomicInteger(0)
+        val pauses = AtomicInteger(0)
         val actions = mutableListOf<String>()
-        val end = try {
-            withTimeout(300_000) {
-                loop.run(
-                    "Open the Android Settings app using start_app with package_name com.android.settings, then use finished.",
-                    object : AgentLoop.Sink {
-                        override fun onStep(step: Int, maxSteps: Int, action: AgentAction) {
-                            steps.incrementAndGet()
-                            actions.add(action.key)
-                            println("E2E step $step/$maxSteps: ${action.key}")
-                        }
-                        override suspend fun awaitUserReply(prompt: String, needsConfirmation: Boolean): String = "continue"
+        val deferred = async(Dispatchers.Main) {
+            loop.run(
+                "Open the Android Settings app using start_app with package_name com.android.settings, then tap any row using click, then use finished.",
+                object : AgentLoop.Sink {
+                    override fun onStep(step: Int, maxSteps: Int, action: AgentAction) {
+                        steps.incrementAndGet()
+                        actions.add(action.key)
+                        println("E2E step $step/$maxSteps: ${action.key}")
                     }
-                )
-            }
+                    override suspend fun awaitUserReply(prompt: String, needsConfirmation: Boolean): String {
+                        pauses.incrementAndGet()
+                        println("E2E pause confirm=$needsConfirmation: $prompt")
+                        return "continue"
+                    }
+                }
+            )
+        }
+        val end = try {
+            withTimeout(240_000) { deferred.await() }
+        } catch (e: TimeoutCancellationException) {
+            deferred.cancel()
+            fail("agent loop froze on the main thread (no end within 240s); actions so far=$actions")
+            return@runBlocking
         } catch (e: Exception) {
-            org.junit.Assert.fail("loop threw: ${e.message}")
+            fail("loop threw: ${e.message}")
             return@runBlocking
         }
 
-        println("E2E end=$end actions=$actions")
+        println("E2E end=$end actions=$actions pauses=${pauses.get()}")
         assertTrue("no actions executed (end=$end)", steps.get() >= 1)
         assertTrue("unexpected end state: $end", end !is AgentLoop.End.Error)
     }
