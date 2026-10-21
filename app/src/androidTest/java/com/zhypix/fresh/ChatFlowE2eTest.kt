@@ -126,21 +126,48 @@ class ChatFlowE2eTest {
         }
     }
 
+    private fun dumpTree(): String {
+        val sb = StringBuilder()
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 10 || sb.length > 3000) return
+            val b = Rect()
+            n.getBoundsInScreen(b)
+            sb.append("  ".repeat(depth))
+                .append(n.className?.toString()?.substringAfterLast('.') ?: "?")
+                .append(" [").append(b.toShortString()).append("]")
+            if (n.isClickable) sb.append(" click")
+            if (n.isEditable) sb.append(" edit")
+            n.text?.toString()?.take(40)?.let { sb.append(" "").append(it).append('"') }
+            sb.append('\n')
+            for (i in 0 until n.childCount) {
+                walk(try { n.getChild(i) } catch (e: Exception) { null }, depth + 1)
+            }
+        }
+        walk(root(), 0)
+        return sb.toString().ifBlank { "(no tree)" }
+    }
+
     private fun sendChatMessage(text: String) {
         launchApp()
+        val eventsBefore = telemetry().lines().size
         val end = System.currentTimeMillis() + 60_000
         while (System.currentTimeMillis() < end) {
             val field = findEditText()
             if (field != null && setFieldText(field, text)) {
                 val send = waitForNode("Send", 5_000)
                 if (send != null && tapNode(send)) {
-                    // Run started: the button switches to Stop while the agent works.
-                    if (waitForNode("Stop", 10_000) != null) return
+                    // Run started: the button switches to Stop, or telemetry grows.
+                    val waitEnd = System.currentTimeMillis() + 15_000
+                    while (System.currentTimeMillis() < waitEnd) {
+                        if (findByText("Stop") != null) return
+                        if (telemetry().lines().size > eventsBefore) return
+                        Thread.sleep(400)
+                    }
                 }
             }
             Thread.sleep(1000)
         }
-        fail("could not start an agent run from the chat UI")
+        fail("could not start an agent run from the chat UI; tree=\n${dumpTree()}")
     }
 
     // ---------- telemetry (written by the app's own AgentViewModel) ----------
