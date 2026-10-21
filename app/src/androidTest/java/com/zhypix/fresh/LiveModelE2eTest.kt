@@ -11,7 +11,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -33,8 +32,7 @@ class LiveModelE2eTest {
     fun agentExecutesAtLeastOneAction() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val ctx = instrumentation.targetContext
-        val key = InstrumentationRegistry.getArguments().getString("e2eKey")
-            ?: fail("missing -e e2eKey")
+        val key = requireNotNull(InstrumentationRegistry.getArguments().getString("e2eKey")) { "missing -e e2eKey" }
 
         val store = ProviderStore(ctx)
         store.saveProvider(ProviderStore.Provider("e2e", "e2e", BASE_URL, key, listOf(MODEL)))
@@ -81,7 +79,7 @@ class LiveModelE2eTest {
                 )
             }
         } catch (e: Exception) {
-            fail("loop threw: ${e.message}")
+            org.junit.Assert.fail("loop threw: ${e.message}")
             return@runBlocking
         }
 
