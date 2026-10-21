@@ -34,7 +34,8 @@ android {
             isDebuggable = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
+                "proguard-beta-test.pro"
             )
             // The androidTest APK is minified separately and does not inherit
             // proguardFiles; give it the same rules.
