@@ -10,6 +10,7 @@ on:
       - 'app/src/main/**'
       - 'app/build.gradle.kts'
       - 'app/proguard-rules.pro'
+      - 'app/proguard-beta-test.pro'
 
 jobs:
   e2e:
