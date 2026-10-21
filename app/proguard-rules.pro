@@ -16,3 +16,12 @@
 -keep class com.zhypix.fresh.data.** { *; }
 -keep class com.zhypix.fresh.agent.** { *; }
 -keep class com.zhypix.fresh.api.** { *; }
+
+# The beta androidTest APK is minified too (testBuildType = beta). Keep the
+# test class names so `am instrument -e class ...` resolves them, and silence
+# errorprone's compile-time-only annotation references on the test classpath.
+-keep class com.zhypix.fresh.LaunchTest { *; }
+-keep class com.zhypix.fresh.LiveModelE2eTest { *; }
+-keep class com.zhypix.fresh.ChatFlowE2eTest { *; }
+-keep class com.zhypix.fresh.GestureE2eTest { *; }
+-dontwarn javax.lang.model.**
