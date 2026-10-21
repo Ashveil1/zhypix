@@ -137,7 +137,7 @@ class ChatFlowE2eTest {
                 .append(" [").append(b.toShortString()).append("]")
             if (n.isClickable) sb.append(" click")
             if (n.isEditable) sb.append(" edit")
-            n.text?.toString()?.take(40)?.let { sb.append(" "").append(it).append('"') }
+            n.text?.toString()?.take(40)?.let { sb.append(" \"").append(it).append('"') }
             sb.append('\n')
             for (i in 0 until n.childCount) {
                 walk(try { n.getChild(i) } catch (e: Exception) { null }, depth + 1)
