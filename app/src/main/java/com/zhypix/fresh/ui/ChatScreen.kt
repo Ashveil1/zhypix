@@ -37,7 +37,7 @@ fun ChatScreen(
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
                 items(items.size) { i ->
                     when (val item = items[i]) {
@@ -56,6 +56,17 @@ fun ChatScreen(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
                         )
                     }
+                }
+            }
+
+            val waiting = runState as? AgentViewModel.RunState.WaitingForUser
+            if (waiting != null && waiting.needsConfirmation) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(onClick = { vm.replyConfirmation(true) }, modifier = Modifier.weight(1f)) { Text("Confirm") }
+                    OutlinedButton(onClick = { vm.replyConfirmation(false) }, modifier = Modifier.weight(1f)) { Text("Cancel") }
                 }
             }
 
@@ -80,6 +91,10 @@ fun ChatScreen(
                 if (runState is AgentViewModel.RunState.Running) {
                     Button(onClick = { vm.stop() }) { Text("Stop") }
                 } else {
+                    if (runState is AgentViewModel.RunState.WaitingForUser) {
+                        TextButton(onClick = { vm.stop() }) { Text("Stop") }
+                        Spacer(Modifier.width(4.dp))
+                    }
                     Button(onClick = {
                         vm.send(input)
                         input = ""

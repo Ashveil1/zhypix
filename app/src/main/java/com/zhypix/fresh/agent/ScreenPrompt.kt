@@ -26,16 +26,16 @@ Actions:
 End the task with EXACTLY ONE of:
 - finished({"message":"what you did"})
 - failed_to_complete_task({"reason":"why"})
-- message_user({"message":"question or note for the user"}) - pauses until the user replies
-- needs_confirmation({"question":"..."}) - before irreversible/sensitive steps (send, pay, delete, post)
+- message_user({"message":"..."}) - ONLY when you cannot proceed without the user's answer. Pauses the task until they reply. NEVER use it for status updates or narration.
+- needs_confirmation({"question":"..."}) - ONLY immediately before an irreversible or sensitive action: sending a message, a payment or purchase, deleting something, posting publicly. NEVER for tapping, scrolling, typing, opening apps, or any reversible step.
 - need_login({"content":"which app needs login"})
 - encountered_captcha({})
 
 Rules:
-- Exactly ONE action per reply. Never two. Never a list.
+- Exactly ONE action per reply. Never two. Never a list. A reply with no action is an error - if unsure, still pick the single best next action.
 - Observe the screenshot before choosing; act on what is actually on screen.
 - If the screen did not change after your last action, do NOT repeat the same action - try a different approach (scroll, wait, press_back, or tap a different element).
-- Before a sensitive action (sending messages, purchases, deletion, posting), use needs_confirmation first.
+- Keep the user undisturbed: message_user and needs_confirmation interrupt them, so use them only in the cases above.
 - You may add at most one short sentence of prose next to the action.
 """.trim()
 }

@@ -8,9 +8,11 @@ import com.zhypix.fresh.agent.AgentLoop
 import com.zhypix.fresh.api.ChatClient
 import com.zhypix.fresh.data.ProviderStore
 import com.zhypix.fresh.service.AgentAccessibilityService
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertNotNull
@@ -86,27 +88,35 @@ class LiveModelE2eTest {
         val steps = AtomicInteger(0)
         val pauses = AtomicInteger(0)
         val actions = mutableListOf<String>()
-        val deferred = async(Dispatchers.Main) {
-            loop.run(
-                "Open the Android Settings app using start_app with package_name com.android.settings, then tap any row using click, then use finished.",
-                object : AgentLoop.Sink {
-                    override fun onStep(step: Int, maxSteps: Int, action: AgentAction) {
-                        steps.incrementAndGet()
-                        actions.add(action.key)
-                        println("E2E step $step/$maxSteps: ${action.key}")
-                    }
-                    override suspend fun awaitUserReply(prompt: String, needsConfirmation: Boolean): String {
-                        pauses.incrementAndGet()
-                        println("E2E pause confirm=$needsConfirmation: $prompt")
-                        return "continue"
-                    }
-                }
-            )
+        // Not a child of runBlocking: if the loop deadlocks the main thread the
+        // await below still times out and fails cleanly instead of hanging CI.
+        val result = CompletableDeferred<AgentLoop.End>()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                result.complete(
+                    loop.run(
+                        "Open the Android Settings app using start_app with package_name com.android.settings, then tap any row using click, then use finished.",
+                        object : AgentLoop.Sink {
+                            override fun onStep(step: Int, maxSteps: Int, action: AgentAction) {
+                                steps.incrementAndGet()
+                                actions.add(action.key)
+                                println("E2E step $step/$maxSteps: ${action.key}")
+                            }
+                            override suspend fun awaitUserReply(prompt: String, needsConfirmation: Boolean): String {
+                                pauses.incrementAndGet()
+                                println("E2E pause confirm=$needsConfirmation: $prompt")
+                                return "continue"
+                            }
+                        }
+                    )
+                )
+            } catch (e: Exception) {
+                result.completeExceptionally(e)
+            }
         }
         val end = try {
-            withTimeout(240_000) { deferred.await() }
+            withTimeout(240_000) { result.await() }
         } catch (e: TimeoutCancellationException) {
-            deferred.cancel()
             fail("agent loop froze on the main thread (no end within 240s); actions so far=$actions")
             return@runBlocking
         } catch (e: Exception) {

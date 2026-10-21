@@ -10,6 +10,7 @@ import com.zhypix.fresh.api.ChatClient
 import com.zhypix.fresh.data.ProviderStore
 import com.zhypix.fresh.service.AgentAccessibilityService
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,7 +29,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     sealed class RunState {
         object Idle : RunState()
         object Running : RunState()
-        data class WaitingForUser(val prompt: String) : RunState()
+        data class WaitingForUser(val prompt: String, val needsConfirmation: Boolean = false) : RunState()
     }
 
     private val _items = MutableStateFlow<List<ChatItem>>(emptyList())
@@ -46,6 +47,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
     private val telemetry = TelemetryLog(File(app.filesDir, "agent_steps.jsonl"))
     private var job: Job? = null
     private var pendingReply: CompletableDeferred<String>? = null
+    private var activeLoop: AgentLoop? = null
 
     fun refreshProviders() {
         _providers.value = store.providers()
@@ -66,7 +68,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
             pendingReply?.complete(trimmed)
             return
         }
-        if (waiting is RunState.Running) return
+        if (waiting is RunState.Running) {
+            // Mid-run messages reach the agent instead of being dropped.
+            activeLoop?.queueFollowUp(trimmed)
+            return
+        }
 
         val service = AgentAccessibilityService.instance
         if (service == null) {
@@ -80,9 +86,10 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
 
         val client = ChatClient(provider.baseUrl, provider.apiKey, model)
         val loop = AgentLoop(service, client, telemetry)
+        activeLoop = loop
 
         _runState.value = RunState.Running
-        job = viewModelScope.launch {
+        job = viewModelScope.launch(Dispatchers.Default) {
             val end = try {
                 loop.run(trimmed, object : AgentLoop.Sink {
                     override fun onStep(step: Int, maxSteps: Int, action: AgentAction) {
@@ -90,7 +97,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                     }
                     override suspend fun awaitUserReply(prompt: String, needsConfirmation: Boolean): String {
                         post(ChatItem.Agent(prompt))
-                        _runState.value = RunState.WaitingForUser(prompt)
+                        _runState.value = RunState.WaitingForUser(prompt, needsConfirmation)
                         val reply = CompletableDeferred<String>()
                         pendingReply = reply
                         val answer = reply.await()
@@ -105,6 +112,7 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 AgentLoop.End.Error(e.message ?: "unknown error")
             }
 
+            activeLoop = null
             _runState.value = RunState.Idle
             when (end) {
                 is AgentLoop.End.Finished -> post(ChatItem.Agent(end.message))
@@ -115,6 +123,11 @@ class AgentViewModel(app: Application) : AndroidViewModel(app) {
                 is AgentLoop.End.Error -> post(ChatItem.Agent("Error: ${end.message}"))
             }
         }
+    }
+
+    /** One-tap answer to a needs_confirmation prompt. */
+    fun replyConfirmation(accepted: Boolean) {
+        pendingReply?.complete(if (accepted) "confirm" else "no, stop")
     }
 
     fun stop() {

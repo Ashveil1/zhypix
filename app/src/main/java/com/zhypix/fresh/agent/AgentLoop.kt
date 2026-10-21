@@ -40,7 +40,11 @@ class AgentLoop(
     interface Sink {
         fun onStep(step: Int, maxSteps: Int, action: AgentAction) {}
         fun onNote(text: String) {}
-        /** Called when the model pauses for the user. Must return the user's reply. */
+        /**
+         * Called only when the model explicitly pauses for the user
+         * (message_user / needs_confirmation / need_login / captcha).
+         * Prose-only replies never reach this. Must return the user's reply.
+         */
         suspend fun awaitUserReply(prompt: String, needsConfirmation: Boolean): String
     }
 
@@ -74,6 +78,7 @@ class AgentLoop(
         var parseFailures = 0
         var backendFailures = 0
         var actionFailures = 0
+        var noActionReplies = 0
 
         while (step < maxSteps) {
             if (followUp != null) {
@@ -130,13 +135,21 @@ class AgentLoop(
             val action: AgentAction = when (parsed) {
                 is ActionParser.Result.One -> parsed.action
                 is ActionParser.Result.None -> {
-                    // A reply with no action and prose is the model talking to the user.
-                    if (parsed === ActionParser.Result.None && reply.isNotBlank()) {
-                        val userReply = sink.awaitUserReply(reply, needsConfirmation = false)
-                        followUp = userReply
-                        continue
+                    if (reply.isBlank()) return End.Error("Model returned nothing.")
+                    // A prose-only reply is NOT a reason to pause and wait for the
+                    // user. Feed it back and demand an action; give up only after
+                    // repeated misses. (Chatty models otherwise turn every step
+                    // into a forced user confirmation.)
+                    noActionReplies++
+                    telemetry?.event("agent.parse", mapOf("step" to step, "failure_reason" to "reply contained no action"))
+                    if (noActionReplies >= 3) {
+                        return End.Error("The model replied three times without acting. Its last reply: ${reply.take(300)}")
                     }
-                    return End.Error("Model returned nothing.")
+                    history.add("assistant" to ChatClient.Turn(reply))
+                    history.add("user" to ChatClient.Turn(
+                        "Your reply contained no action. Do not explain or ask - reply with EXACTLY ONE action in the form name({\"...\":...})."))
+                    delay(1000)
+                    continue
                 }
                 is ActionParser.Result.Several -> {
                     parseFailures++
@@ -164,6 +177,7 @@ class AgentLoop(
                 }
             }
             parseFailures = 0
+            noActionReplies = 0
 
             sink.onStep(step, maxSteps, action)
             history.add("assistant" to ChatClient.Turn(reply))
@@ -233,54 +247,52 @@ class AgentLoop(
         return End.MaxSteps(maxSteps)
     }
 
-    private fun execute(action: AgentAction, w: Int, h: Int): String? {
+    /**
+     * Executes one action. This is a plain suspend function: NEVER wrap these
+     * calls in runBlocking. Gesture results are delivered on the main looper,
+     * so blocking the main thread here deadlocks the app (the ANR reported
+     * from a physical phone) - suspending lets the callback land.
+     */
+    private suspend fun execute(action: AgentAction, w: Int, h: Int): String? {
         fun inBounds(x: Int, y: Int) = x in 0..w && y in 0..h
         return when (action) {
             is AgentAction.Click -> {
                 if (!inBounds(action.x, action.y)) "Rejected: (${action.x},${action.y}) is outside the ${w}x$h screen."
-                else if (!runBlockingSafe { service.click(action.x.toFloat(), action.y.toFloat()) }) null
+                else if (!service.click(action.x.toFloat(), action.y.toFloat())) null
                 else "Tapped (${action.x},${action.y})."
             }
             is AgentAction.DoubleClick -> {
                 if (!inBounds(action.x, action.y)) "Rejected: (${action.x},${action.y}) is outside the ${w}x$h screen."
                 else {
-                    val (ok, msg) = runBlockingSafe { service.doubleClick(action.x.toFloat(), action.y.toFloat()) }
+                    val (ok, msg) = service.doubleClick(action.x.toFloat(), action.y.toFloat())
                     if (!ok) msg ?: "double_click failed."
                     else "Double-tapped (${action.x},${action.y})."
                 }
             }
             is AgentAction.PressAndHold -> {
                 if (!inBounds(action.x, action.y)) "Rejected: (${action.x},${action.y}) is outside the ${w}x$h screen."
-                else if (!runBlockingSafe { service.pressAndHold(action.x.toFloat(), action.y.toFloat()) }) null
+                else if (!service.pressAndHold(action.x.toFloat(), action.y.toFloat())) null
                 else "Long-pressed (${action.x},${action.y})."
             }
             is AgentAction.Drag -> {
                 if (!inBounds(action.startX, action.startY) || !inBounds(action.endX, action.endY)) "Rejected: drag endpoints outside the ${w}x$h screen."
-                else if (!runBlockingSafe { service.drag(action.startX.toFloat(), action.startY.toFloat(), action.endX.toFloat(), action.endY.toFloat()) }) null
+                else if (!service.drag(action.startX.toFloat(), action.startY.toFloat(), action.endX.toFloat(), action.endY.toFloat())) null
                 else "Dragged."
             }
             is AgentAction.DragAndDrop -> {
                 if (!inBounds(action.startX, action.startY) || !inBounds(action.endX, action.endY)) "Rejected: drag endpoints outside the ${w}x$h screen."
-                else if (!runBlockingSafe { service.dragAndDrop(action.startX.toFloat(), action.startY.toFloat(), action.endX.toFloat(), action.endY.toFloat()) }) null
+                else if (!service.dragAndDrop(action.startX.toFloat(), action.startY.toFloat(), action.endX.toFloat(), action.endY.toFloat())) null
                 else "Dragged and dropped."
             }
             is AgentAction.TypeText ->
                 if (service.typeText(action.text)) "Typed ${action.text.length} characters." else null
-            is AgentAction.Wait -> { kotlinx.coroutines.runBlocking { delay((action.seconds * 1000).toLong()) }; "Waited ${action.seconds}s." }
+            is AgentAction.Wait -> { delay((action.seconds * 1000).toLong()); "Waited ${action.seconds}s." }
             is AgentAction.PressBack -> if (service.pressBack()) "Pressed back." else null
             is AgentAction.PressHome -> if (service.pressHome()) "Pressed home." else null
             is AgentAction.StartApp ->
                 if (service.startApp(action.packageName)) "Launched ${action.packageName}." else "Could not launch ${action.packageName} (not installed?)."
             else -> "Unhandled action."
         }
-    }
-
-    private fun <T> runBlockingSafe(block: suspend () -> T): T = kotlinx.coroutines.runBlocking { block() }
-
-    private fun looksAffirmative(text: String): Boolean {
-        val t = text.trim().lowercase()
-        val yes = listOf("yes", "ok", "yep", "yeah", "confirm", "go ahead", "sure", "do it", "ตกลง", "ใช่", "โอเค", "ยืนยัน", "ทำเลย", "ได้", "เอาเลย")
-        return yes.any { t == it || t.startsWith("$it ") || t.startsWith("$it!") || t.startsWith("$it.") }
     }
 
     /** Keeps the request within model context: old observations collapse to a stub. */
@@ -313,6 +325,17 @@ class AgentLoop(
     }
 
     companion object {
+        internal fun looksAffirmative(text: String): Boolean {
+            val t = text.trim().lowercase()
+            val yes = listOf(
+                "yes", "y", "ok", "k", "yep", "yeah", "sure", "confirm", "confirmed",
+                "go ahead", "do it", "proceed", "continue", "go",
+                "ตกลง", "ใช่", "โอเค", "ยืนยัน", "ทำเลย", "ทำไป", "ได้", "เอา", "เอาเลย",
+                "ต่อ", "ไปต่อ", "ต่อเลย", "จัดไป", "ส่งเลย", "ครับ", "ค่ะ", "จ้า", "แน่นอน"
+            )
+            return yes.any { t == it || t.startsWith("$it ") || t.startsWith("$it!") || t.startsWith("$it.") }
+        }
+
         fun scaleLongSide(src: Bitmap, maxLongSide: Int): Bitmap {
             val longSide = maxOf(src.width, src.height)
             if (longSide <= maxLongSide) return src
