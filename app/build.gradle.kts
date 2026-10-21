@@ -89,5 +89,7 @@ dependencies {
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-    betaImplementation("androidx.compose.ui:ui-test-manifest")
+    // No type-safe accessor exists for the custom beta build type; use the
+    // string configuration name.
+    "betaImplementation"("androidx.compose.ui:ui-test-manifest")
 }
