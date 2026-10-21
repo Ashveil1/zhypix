@@ -36,6 +36,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // The androidTest APK is minified separately and does not inherit
+            // proguardFiles; give it the same rules.
+            testProguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             matchingFallbacks += listOf("release")
         }
         release {
