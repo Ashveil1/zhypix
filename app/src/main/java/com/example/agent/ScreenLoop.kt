@@ -27,13 +27,21 @@ class ScreenLoop(
                 onStep(step, maxSteps)
                 val observation = retryStage { capture() }
                 var parsed: ActionParseResult = ActionParser.parse(retryStage { decide(observation, history.toList()) })
+                var replyExcerpt = ""
                 if (parsed !is ActionParseResult.Ok) {
+                    val why = (parsed as? ActionParseResult.Invalid)?.reason ?: "no single action call found"
                     sleep(ScreenPolicy.STAGE_RETRY_MS)
-                    history.add("Invalid action. Return exactly one supported name(JSON object) action.")
-                    parsed = ActionParser.parse(retryStage { decide(observation, history.toList()) })
+                    history.add("Your last reply was rejected ($why). Reply with exactly one action call and nothing else, for example: click({\"x\":100,\"y\":200}) or finished({\"message\":\"...\"})")
+                    replyExcerpt = retryStage { decide(observation, history.toList()) }.also { reply ->
+                        parsed = ActionParser.parse(reply)
+                    }.take(120).replace("\n", " ")
                 }
                 val action = (parsed as? ActionParseResult.Ok)?.action
-                    ?: return ScreenAction.FailedToCompleteTask("The model returned an invalid action twice.")
+                    ?: return ScreenAction.FailedToCompleteTask(
+                        "The model did not return a valid action after two attempts" +
+                            (if (replyExcerpt.isBlank()) "." else " (last reply started with: \"$replyExcerpt\").") +
+                            " Rephrase the task and try again."
+                    )
                 if (action is ScreenAction.Terminal) return action
                 if (action is ScreenAction.Walkthrough) return ScreenAction.MessageUser(action.steps)
                 confirmBefore(action)?.let { return ScreenAction.NeedsConfirmation(it) }

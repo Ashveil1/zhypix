@@ -77,8 +77,13 @@ class ScreenActionsTest {
     }
 
     @Test
-    fun proseAroundActionIsRejected() {
-        assertEquals(ActionParseResult.NotAnAction, ActionParser.parse("I will tap.\nclick({\"x\":100,\"y\":200})"))
+    fun singleActionInsideProseIsExtracted() {
+        // One known action wrapped in prose is used (models do this often); zero or several stay rejected.
+        val r = ActionParser.parse("I will tap.\nclick({\"x\":100,\"y\":200})")
+        assertTrue(r is ActionParseResult.Ok)
+        assertEquals(ActionParseResult.NotAnAction, ActionParser.parse("I will tap it now."))
+        val several = ActionParser.parse("click({\"x\":1,\"y\":2}) and then click({\"x\":3,\"y\":4})")
+        assertTrue(several is ActionParseResult.Invalid)
     }
 
     @Test
@@ -132,8 +137,15 @@ class ScreenActionsNormalizeTest {
         val r = com.example.agent.ActionParser.parse("```\nclick({\"x\":1,\"y\":2})\n```")
         org.junit.Assert.assertTrue(r is com.example.agent.ActionParseResult.Ok)
     }
-    @org.junit.Test fun stillRejectsProseAndMultipleCalls() {
-        org.junit.Assert.assertFalse(com.example.agent.ActionParser.parse("I will click({\"x\":1,\"y\":2})") is com.example.agent.ActionParseResult.Ok)
-        org.junit.Assert.assertFalse(com.example.agent.ActionParser.parse("click({\"x\":1,\"y\":2})\nclick({\"x\":3,\"y\":4})") is com.example.agent.ActionParseResult.Ok)
+    @org.junit.Test fun singleActionInsideProseIsUsedButSeveralAreRejected() {
+        val one = com.example.agent.ActionParser.parse("Sure, tapping now: click({\"x\":1,\"y\":2})")
+        org.junit.Assert.assertTrue(one is com.example.agent.ActionParseResult.Ok)
+        val two = com.example.agent.ActionParser.parse("click({\"x\":1,\"y\":2})\nclick({\"x\":3,\"y\":4})")
+        org.junit.Assert.assertFalse(two is com.example.agent.ActionParseResult.Ok)
+        org.junit.Assert.assertTrue(two is com.example.agent.ActionParseResult.Invalid)
+        val proseOnly = com.example.agent.ActionParser.parse("I think the button is near the top.")
+        org.junit.Assert.assertFalse(proseOnly is com.example.agent.ActionParseResult.Ok)
+        val withTextArg = com.example.agent.ActionParser.parse("Typing the query. type({\"text\":\"café (near me)\"})")
+        org.junit.Assert.assertTrue(withTextArg is com.example.agent.ActionParseResult.Ok)
     }
 }
