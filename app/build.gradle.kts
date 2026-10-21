@@ -24,7 +24,9 @@ android {
             initWith(getByName("debug"))
             isMinifyEnabled = true
             isShrinkResources = true
-            isDebuggable = false
+            // Debuggable so instrumented e2e tests can run against this minified
+            // build in CI; it is an internal test build signed with the debug key.
+            isDebuggable = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
