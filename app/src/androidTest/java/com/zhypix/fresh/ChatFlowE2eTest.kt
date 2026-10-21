@@ -140,9 +140,17 @@ class ChatFlowE2eTest {
         )
 
         // Turn 2: a second message in the same session must also work. The
-        // agent left our app in the background; bring it back to the front.
+        // agent left our app in the background; bring its existing task (and
+        // activity instance, so the session continues) back to the front.
         val stepsBefore = countEvents("agent.step")
-        composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        shell("am start -f 0x10020000 -n $PKG/.MainActivity") // NEW_TASK | REORDER_TO_FRONT
+        composeRule.waitUntil(15_000) {
+            var resumed = false
+            composeRule.runOnIdle {
+                resumed = composeRule.activity.lifecycle.currentState == Lifecycle.State.RESUMED
+            }
+            resumed
+        }
         sendChatMessage("Open Settings again with start_app and reply finished.")
         assertTrue(
             "turn 2 produced no executed steps",
