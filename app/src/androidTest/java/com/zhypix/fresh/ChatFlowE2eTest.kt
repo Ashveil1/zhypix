@@ -7,6 +7,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import com.zhypix.fresh.data.ProviderStore
+import com.zhypix.fresh.service.AgentAccessibilityService
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -42,9 +43,28 @@ class ChatFlowE2eTest {
         ParcelFileDescriptor.AutoCloseInputStream(ui.executeShellCommand(cmd)).use { it.readBytes() }
     }
 
-    private fun enableService() {
-        shell("settings put secure enabled_accessibility_services $SERVICE")
-        shell("settings put secure accessibility_enabled 1")
+    /**
+     * `am instrument` force-stops the app, which unbinds the accessibility
+     * service; a single settings write often does not rebind it. Toggle it
+     * until the service reports itself connected, same as the other e2e tests.
+     */
+    private fun bindService() {
+        AgentAccessibilityService.instance?.let { return }
+        shell("am start -n $PKG/.MainActivity")
+        Thread.sleep(2500)
+        val end = System.currentTimeMillis() + 90_000
+        while (System.currentTimeMillis() < end) {
+            shell("settings put secure enabled_accessibility_services null")
+            Thread.sleep(1000)
+            shell("settings put secure enabled_accessibility_services $SERVICE")
+            shell("settings put secure accessibility_enabled 1")
+            val waitUntil = System.currentTimeMillis() + 8_000
+            while (System.currentTimeMillis() < waitUntil) {
+                AgentAccessibilityService.instance?.let { return }
+                Thread.sleep(250)
+            }
+        }
+        fail("accessibility service did not bind after re-enabling")
     }
 
     private fun telemetry(): String = try {
@@ -80,7 +100,8 @@ class ChatFlowE2eTest {
             device.pressBack() // a keyboard may have covered the button; dismiss and retry
             Thread.sleep(1000)
         }
-        fail("could not start an agent run from the chat UI")
+        val visible = device.findObjects(By.pkg(PKG)).mapNotNull { it.text }.distinct().take(12)
+        fail("could not start an agent run from the chat UI; visible texts=$visible")
     }
 
     @Test
@@ -89,7 +110,7 @@ class ChatFlowE2eTest {
         val store = ProviderStore(inst.targetContext)
         store.saveProvider(ProviderStore.Provider("e2e", "e2e", BASE_URL, key, listOf(MODEL)))
         store.saveSelection(ProviderStore.Selection("e2e", MODEL))
-        enableService()
+        bindService()
         telemetryFile.delete()
 
         // Turn 1: send a task through the real chat UI.
