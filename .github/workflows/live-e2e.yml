@@ -2,6 +2,11 @@ name: Live model e2e
 
 on:
   workflow_dispatch:
+  push:
+    branches: [fresh-app]
+    paths:
+      - '.github/workflows/live-e2e.yml'
+      - 'app/src/androidTest/**'
 
 jobs:
   e2e:
