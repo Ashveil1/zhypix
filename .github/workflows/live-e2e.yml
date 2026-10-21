@@ -35,7 +35,7 @@ jobs:
 
       - name: Build app and test APKs
         # The beta (minified) APK is what users install - test exactly that.
-        run: gradle :app:assembleBeta :app:assembleDebugAndroidTest --no-daemon
+        run: gradle :app:assembleBeta :app:assembleBetaAndroidTest --no-daemon
 
       - name: Enable KVM
         run: |
@@ -52,7 +52,7 @@ jobs:
           script: |
             set -x
             adb install -r app/build/outputs/apk/beta/app-beta.apk
-            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb install -r app/build/outputs/apk/androidTest/beta/app-beta-androidTest.apk
             adb shell settings put secure enabled_accessibility_services com.zhypix.fresh/com.zhypix.fresh.service.AgentAccessibilityService
             adb shell settings put secure accessibility_enabled 1
             adb shell am instrument -w -e e2eKey "$OPENROUTER_E2E_KEY" -e class com.zhypix.fresh.LiveModelE2eTest com.zhypix.fresh.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt || true

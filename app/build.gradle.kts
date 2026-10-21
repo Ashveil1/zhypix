@@ -8,6 +8,11 @@ android {
     namespace = "com.zhypix.fresh"
     compileSdk = 35
 
+    // Instrumented tests run against the minified beta build - the APK users
+    // install. AGP then packages the test APK against the beta variant, so
+    // classes R8 strips from the app still reach the test APK.
+    testBuildType = "beta"
+
     defaultConfig {
         applicationId = "com.zhypix.fresh"
         minSdk = 30
@@ -78,16 +83,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
 
-    // The androidx.test POMs only reference kotlin-stdlib at compile time, so the
-    // androidTest APK relies on the app APK for it. That breaks when the app is
-    // minified and R8 strips unused stdlib/coroutines classes, so package them
-    // in the test APK explicitly.
-    androidTestImplementation(kotlin("stdlib"))
-    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation(platform("androidx.compose:compose-bom:2024.09.00"))
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    betaImplementation("androidx.compose.ui:ui-test-manifest")
 }
