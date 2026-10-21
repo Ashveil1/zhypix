@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Zhypix</string>
+    <string name="accessibility_service_description">Lets Zhypix see the screen and perform taps, swipes and typing that you ask for.</string>
+</resources>
