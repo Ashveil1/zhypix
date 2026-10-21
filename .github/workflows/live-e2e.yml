@@ -52,9 +52,12 @@ jobs:
             adb shell settings put secure enabled_accessibility_services com.zhypix.fresh/com.zhypix.fresh.service.AgentAccessibilityService
             adb shell settings put secure accessibility_enabled 1
             adb shell am instrument -w -e e2eKey "$OPENROUTER_E2E_KEY" -e class com.zhypix.fresh.LiveModelE2eTest com.zhypix.fresh.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt || true
+            adb shell am instrument -w -e class com.zhypix.fresh.GestureE2eTest com.zhypix.fresh.test/androidx.test.runner.AndroidJUnitRunner | tee gesture.txt || true
             adb logcat -d -t 2000 > logcat_tail.txt || true
             if grep -q "FAILURES" instrument.txt; then exit 1; fi
             grep -q "OK (1 test)" instrument.txt
+            if grep -q "FAILURES" gesture.txt; then exit 1; fi
+            grep -q "OK (2 tests)" gesture.txt
         env:
           OPENROUTER_E2E_KEY: ${{ secrets.OPENROUTER_E2E_KEY }}
 
@@ -65,6 +68,7 @@ jobs:
           name: live-e2e-results
           path: |
             instrument.txt
+            gesture.txt
             logcat_tail.txt
           if-no-files-found: ignore
           retention-days: 14
