@@ -315,7 +315,8 @@ object RetrofitClient {
         .build()
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        // Full bodies carry the API key (?key=...) and user content; only log them in debug builds.
+        level = if (com.zhypix.BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BODY else HttpLoggingInterceptor.Level.NONE
     }
 
     private val okHttpClient = OkHttpClient.Builder()
@@ -325,11 +326,11 @@ object RetrofitClient {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private val services = mutableMapOf<String, GeminiApiService>()
+    private val services = java.util.concurrent.ConcurrentHashMap<String, GeminiApiService>()
 
     fun getService(baseUrl: String): GeminiApiService {
         val fixedUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
-        return services.getOrPut(fixedUrl) {
+        return services.computeIfAbsent(fixedUrl) {
             Retrofit.Builder()
                 .baseUrl(fixedUrl)
                 .client(okHttpClient)

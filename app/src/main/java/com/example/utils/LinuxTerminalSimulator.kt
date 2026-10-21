@@ -1122,9 +1122,9 @@ object LinuxTerminalSimulator {
                         else "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.4-base-amd64.tar.gz"
                     )
                     "archlinux" -> listOf(
-                        if (isArm) "http://fl.us.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
+                        if (isArm) "https://fl.us.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
                         else "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/ubuntu-base-24.04.4-base-amd64.tar.gz",
-                        if (isArm) "http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
+                        if (isArm) "https://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz"
                         else "https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/dist-amd64/stable/oci/blobs/rootfs.tar.gz"
                     )
                     "kali" -> listOf(

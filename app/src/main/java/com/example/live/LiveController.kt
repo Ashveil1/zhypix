@@ -8,6 +8,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
@@ -59,7 +60,7 @@ class LiveController(
 
     init {
         session.onModelText = { text, _ ->
-            _transcript.value = _transcript.value + TranscriptEntry(fromUser = false, text = text)
+            _transcript.update { it + TranscriptEntry(fromUser = false, text = text) }
         }
         session.onModelAudio = { pcm, _ -> audio.enqueuePlayback(pcm) }
         session.onInterrupted = { audio.interruptPlayback() }
@@ -92,7 +93,7 @@ class LiveController(
     /** Send a user text message into the Live conversation. */
     fun sendText(text: String) {
         if (text.isBlank()) return
-        _transcript.value = _transcript.value + TranscriptEntry(fromUser = true, text = text)
+        _transcript.update { it + TranscriptEntry(fromUser = true, text = text) }
         session.sendText(text)
     }
 
