@@ -129,7 +129,61 @@ object ActionParser {
 
         ACTION_PATTERN.matchEntire(trimmed)?.let { return interpret(it) }
 
-        return ActionParseResult.NotAnAction
+        // Tolerance net: models often wrap one real action in prose ("Sure, clicking now: click({...})").
+        // Exactly one known action call in the whole reply is used; several calls are never silently picked from.
+        return when (val found = extractSingleCall(trimmed)) {
+            is Extraction.None -> ActionParseResult.NotAnAction
+            is Extraction.Several -> ActionParseResult.Invalid("reply contained ${found.count} action calls; return exactly one")
+            is Extraction.One -> {
+                ACTION_PATTERN.matchEntire(found.call)?.let { return interpret(it) }
+                ActionParseResult.Invalid("malformed action call")
+            }
+        }
+    }
+
+    internal sealed class Extraction {
+        object None : Extraction()
+        data class One(val call: String) : Extraction()
+        data class Several(val count: Int) : Extraction()
+    }
+
+    private val KNOWN_ACTIONS = setOf(
+        "click", "double_click", "press_and_hold", "drag", "drag_and_drop", "type", "wait",
+        "press_back", "press_home", "start_app", "walkthrough", "finished", "failed_to_complete_task",
+        "message_user", "needs_confirmation", "need_login", "need_login_details", "encountered_captcha"
+    )
+    private val CALL_START = Regex("""\b([a-z_][a-z0-9_]*)\s*\(""")
+
+    /** Finds complete name( ... ) calls for known actions, balancing parentheses with string awareness. */
+    internal fun extractSingleCall(text: String): Extraction {
+        val calls = mutableListOf<String>()
+        for (m in CALL_START.findAll(text)) {
+            if (m.groupValues[1].lowercase() !in KNOWN_ACTIONS) continue
+            val open = m.range.last // index of '('
+            var depth = 0
+            var inString = false
+            var escaped = false
+            var end = -1
+            for (i in open until text.length) {
+                val c = text[i]
+                if (inString) {
+                    if (escaped) escaped = false
+                    else if (c == '\\') escaped = true
+                    else if (c == '"') inString = false
+                } else when (c) {
+                    '"' -> inString = true
+                    '(' -> depth++
+                    ')' -> { depth--; if (depth == 0) { end = i; break } }
+                }
+            }
+            if (end < 0) continue // unbalanced: not a usable call, and prose alone is not an action
+            calls += text.substring(m.range.first, end + 1)
+        }
+        return when (calls.size) {
+            0 -> Extraction.None
+            1 -> Extraction.One(calls.single())
+            else -> Extraction.Several(calls.size)
+        }
     }
 
     private fun interpret(m: MatchResult): ActionParseResult {
