@@ -9,7 +9,7 @@ class ApiErrorUtilTest {
 
     @Test
     fun redactSecrets_masksGeminiKeyQueryParam() {
-        val raw = "HTTP 400 Bad Request\nResponse details: {"error":"bad"} at https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=AIzaSySecretKey123"
+        val raw = "HTTP 400 Bad Request\nResponse details: {\"error\":\"bad\"} at https://generativelanguage.googleapis.com/v1beta/models/x:generateContent?key=AIzaSySecretKey123"
         val out = ApiErrorUtil.redactSecrets(raw)
         assertFalse(out.contains("AIzaSySecretKey123"))
         assert(out.contains("key=REDACTED")) { "expected redacted marker, got: $out" }
