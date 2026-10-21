@@ -6,3 +6,5 @@
 -dontwarn com.squareup.moshi.**
 -dontwarn kotlinx.coroutines.**
 -dontwarn androidx.security.**
+# Tink references errorprone annotations that are compile-time only
+-dontwarn com.google.errorprone.annotations.**
