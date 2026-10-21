@@ -14,6 +14,3 @@
 -keep class com.squareup.** { *; }
 -keep class okhttp3.** { *; }
 -keep class okio.** { *; }
--keep class com.google.** { *; }
--keep class org.bouncycastle.** { *; }
--keep class com.google.crypto.** { *; }
