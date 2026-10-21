@@ -440,7 +440,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
 
                 val webSearchPref = prefs.find { it.key == "cfg_webSearch" }?.value
                 if (webSearchPref != null) {
-                    _webSearchEnabled.value = true
+                    _webSearchEnabled.value = webSearchPref.toBoolean()
                 }
 
                 val visionPref = prefs.find { it.key == "cfg_visionMode" }?.value
@@ -664,7 +664,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 _autoSkipAdsEnabled.value = value.toBoolean()
                 // Legacy automatic screen actions removed during rebuild.
             }
-            "webSearch" -> _webSearchEnabled.value = true
+            "webSearch" -> _webSearchEnabled.value = value.toBoolean()
             "visionMode" -> _visionMode.value = value
             "screenshotQuality" -> _screenshotQuality.value = value.toIntOrNull() ?: 75
             "screenshotMaxLongSide" -> _screenshotMaxLongSide.value = value.toIntOrNull() ?: 780
@@ -699,6 +699,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
             prefList.add(UserPreference("cfg_visionMode", _visionMode.value))
             prefList.add(UserPreference("cfg_screenshotQuality", _screenshotQuality.value.toString()))
             prefList.add(UserPreference("cfg_screenshotScale", _screenshotScale.value.toString()))
+            prefList.add(UserPreference("cfg_screenshotMaxLongSide", _screenshotMaxLongSide.value.toString()))
             prefList.add(UserPreference("cfg_thai_voice", _thaiVoice.value))
             prefList.add(UserPreference("cfg_english_voice", _englishVoice.value))
             prefList.add(UserPreference("cfg_japanese_voice", _japaneseVoice.value))
@@ -2043,15 +2044,29 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                 throw e
             } catch (e: Exception) {
                 Log.e("Zhypix", "API Error", e)
-                val errorDetails = if (e is HttpException) {
-                    val body = try { e.response()?.errorBody()?.string() } catch (ex: Exception) { null }
-                    "HTTP ${e.code()} ${e.message() ?: ""}\nResponse details: ${body ?: "No details available"}"
-                } else {
-                    e.message ?: "Unknown error"
-                }
+                val errorDetails = com.example.api.ApiErrorUtil.redactSecrets(
+                    if (e is HttpException) {
+                        val body = try { e.response()?.errorBody()?.string() } catch (ex: Exception) { null }
+                        "HTTP ${e.code()} ${e.message() ?: ""}\nResponse details: ${body ?: "No details available"}"
+                    } else {
+                        e.message ?: "Unknown error"
+                    }
+                )
                 addReasoningStep("API execution failed", errorDetails, "FAILED", "SYSTEM")
 
-                if (fallbackRetryCount < 3) {
+                // Permanent failures (bad key, bad request, unknown model) cannot be
+                // fixed by retrying; surface them instead of burning more calls.
+                val isPermanentHttp = e is HttpException && e.code() !in 500..599 && e.code() != 429
+                if (isPermanentHttp) {
+                    fallbackRetryCount = 0
+                    _messages.value += ChatMessage.Agent(
+                        "Request failed (HTTP ${e.code()}). Check the API key, model name, and provider settings, then try again.\n$errorDetails"
+                    )
+                    stopInactivityWatchdog()
+                    wasWaitingForScreenLoad = false
+                    _isProcessing.value = false
+                    _agentState.value = AgentState.IDLE
+                } else if (fallbackRetryCount < 3) {
                     fallbackRetryCount++
                     addReasoningStep(
                         "Fallback Recovery Triggered",

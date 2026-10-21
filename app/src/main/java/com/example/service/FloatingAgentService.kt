@@ -2031,6 +2031,7 @@ class FloatingAgentService : Service() {
             }
         }
         instance = null
+        glowPulseAnimator?.cancel()
         islandMorphAnimator?.cancel()
         idleBreathAnimator?.cancel()
         visualizerAnimator?.cancel()

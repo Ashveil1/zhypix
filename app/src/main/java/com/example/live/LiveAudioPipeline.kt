@@ -68,7 +68,14 @@ class LiveAudioPipeline(
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
             val buf = ByteArray(CAPTURE_CHUNK_BYTES)
             while (isActive) {
-                val n = rec.read(buf, 0, buf.size)
+                // stop()/release() on another thread can turn read() into a throw;
+                // treat it as end-of-capture instead of crashing the app.
+                val n = try {
+                    rec.read(buf, 0, buf.size)
+                } catch (e: Exception) {
+                    android.util.Log.w("LiveAudioPipeline", "AudioRecord.read failed, stopping capture: ${e.message}")
+                    break
+                }
                 if (n > 0) {
                     session.sendAudioChunk(if (n == buf.size) buf else buf.copyOf(n))
                 }
@@ -110,7 +117,12 @@ class LiveAudioPipeline(
             while (isActive) {
                 val chunk = playbackQueue.poll()
                 if (chunk != null) {
-                    track.write(chunk, 0, chunk.size)
+                    try {
+                        track.write(chunk, 0, chunk.size)
+                    } catch (e: Exception) {
+                        android.util.Log.w("LiveAudioPipeline", "AudioTrack.write failed, stopping playback: ${e.message}")
+                        break
+                    }
                 } else {
                     kotlinx.coroutines.delay(10)
                 }
