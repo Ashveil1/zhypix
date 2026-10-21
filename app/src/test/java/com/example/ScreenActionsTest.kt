@@ -77,8 +77,13 @@ class ScreenActionsTest {
     }
 
     @Test
-    fun proseAroundActionIsRejected() {
-        assertEquals(ActionParseResult.NotAnAction, ActionParser.parse("I will tap.\nclick({\"x\":100,\"y\":200})"))
+    fun singleActionInsideProseIsExtracted() {
+        // One known action wrapped in prose is used (models do this often); zero or several stay rejected.
+        val r = ActionParser.parse("I will tap.\nclick({\"x\":100,\"y\":200})")
+        assertTrue(r is ActionParseResult.Ok)
+        assertEquals(ActionParseResult.NotAnAction, ActionParser.parse("I will tap it now."))
+        val several = ActionParser.parse("click({\"x\":1,\"y\":2}) and then click({\"x\":3,\"y\":4})")
+        assertTrue(several is ActionParseResult.Invalid)
     }
 
     @Test
