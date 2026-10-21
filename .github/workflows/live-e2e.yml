@@ -31,7 +31,8 @@ jobs:
             -keypass android -dname "CN=Android Debug,O=Android,C=US"
 
       - name: Build app and test APKs
-        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+        # The beta (minified) APK is what users install - test exactly that.
+        run: gradle :app:assembleBeta :app:assembleDebugAndroidTest --no-daemon
 
       - name: Enable KVM
         run: |
@@ -47,7 +48,7 @@ jobs:
           profile: pixel_6
           script: |
             set -x
-            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb install -r app/build/outputs/apk/beta/app-beta.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell settings put secure enabled_accessibility_services com.zhypix.fresh/com.zhypix.fresh.service.AgentAccessibilityService
             adb shell settings put secure accessibility_enabled 1
