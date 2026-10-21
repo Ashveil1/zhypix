@@ -987,12 +987,14 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 } catch (e: Exception) {
-                    val errorDetails = if (e is HttpException) {
-                        val body = try { e.response()?.errorBody()?.string() } catch (ex: Exception) { null }
-                        "HTTP ${e.code()}: ${body ?: e.message()}"
-                    } else {
-                        e.message ?: "Unknown error"
-                    }
+                    val errorDetails = com.example.api.ApiErrorUtil.redactSecrets(
+                        if (e is HttpException) {
+                            val body = try { e.response()?.errorBody()?.string() } catch (ex: Exception) { null }
+                            "HTTP " + e.code() + ": " + (body ?: e.message())
+                        } else {
+                            e.message ?: "Unknown error"
+                        }
+                    )
                     lastErr = errorDetails
                     if (attempt < maxRetries) {
                         _connectionStatus.value = "Retrying ($attempt/$maxRetries)..."
@@ -2617,6 +2619,15 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
                         responseParts.add(Part(functionResponse = FunctionResponse(
                             name = call.name,
                             response = res
+                        )))
+                    }
+                    else -> {
+                        // Hallucinated/unknown tool: answer it instead of dropping it, otherwise
+                        // history contains a function call with no response and the next request fails.
+                        addReasoningStep("Unknown Tool Call", "Model requested unsupported tool '" + call.name + "'.", "WARNING", "TOOL")
+                        responseParts.add(Part(functionResponse = FunctionResponse(
+                            name = call.name,
+                            response = mapOf("status" to "error", "message" to "Unknown tool. Use only the declared tools.")
                         )))
                     }
 
