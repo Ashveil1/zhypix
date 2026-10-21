@@ -86,7 +86,7 @@ fun ProvidersScreen(vm: AgentViewModel, onBack: () -> Unit) {
             onDismiss = { showEditor = false },
             onSave = { p ->
                 vm.store.saveProvider(p)
-                if (vm.selection?.providerId == null && p.models.isNotEmpty()) {
+                if (vm.selection.value?.providerId == null && p.models.isNotEmpty()) {
                     vm.store.saveSelection(ProviderStore.Selection(p.id, p.models.first()))
                 }
                 vm.refreshProviders()
