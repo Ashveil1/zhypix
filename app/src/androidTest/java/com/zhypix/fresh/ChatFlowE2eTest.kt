@@ -110,6 +110,16 @@ class ChatFlowE2eTest {
     }
 
     private fun tapNode(node: AccessibilityNodeInfo): Boolean {
+        // Deterministic first: fire the semantics onClick of the node or its
+        // nearest clickable ancestor (Compose buttons expose this).
+        var n: AccessibilityNodeInfo? = node
+        while (n != null) {
+            if (n.isClickable) {
+                if (try { n.performAction(AccessibilityNodeInfo.ACTION_CLICK) } catch (e: Exception) { false }) return true
+            }
+            n = try { n.parent } catch (e: Exception) { null }
+        }
+        // Fallback: a real gesture at the node's center via our service.
         val service = AgentAccessibilityService.instance ?: return false
         val b = Rect()
         node.getBoundsInScreen(b)
