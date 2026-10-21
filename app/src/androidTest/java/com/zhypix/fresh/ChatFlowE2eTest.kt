@@ -1,21 +1,22 @@
 package com.zhypix.fresh
 
 import android.app.UiAutomation
+import android.graphics.Rect
+import android.os.Bundle
 import android.os.ParcelFileDescriptor
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
 import com.zhypix.fresh.data.ProviderStore
 import com.zhypix.fresh.service.AgentAccessibilityService
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
 
 /**
- * Drives the REAL app UI the way a user does: type a message into the chat,
- * tap Send, and let the agent work - twice in a row (multi-turn).
+ * Drives the REAL app UI the way a user does: put a message into the chat
+ * field, tap Send, and let the agent work - twice in a row (multi-turn).
  *
  * Guards the two failures seen on a physical phone:
  *  - the app freezing (ANR) after Send: any blocking call on the main thread
@@ -24,6 +25,11 @@ import java.io.File
  *
  * Progress is read from the app's own telemetry file (same UID), so polling
  * never disturbs the screen the agent is operating on.
+ *
+ * Everything goes through ONE UiAutomation opened with DONT_SUPPRESS and the
+ * app's own accessibility service. Do NOT use UiDevice here: its default
+ * UiAutomation suppresses accessibility services, which keeps our service
+ * from ever binding.
  */
 class ChatFlowE2eTest {
 
@@ -36,7 +42,6 @@ class ChatFlowE2eTest {
 
     private val inst = InstrumentationRegistry.getInstrumentation()
     private val ui: UiAutomation = inst.getUiAutomation(UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES)
-    private val device: UiDevice = UiDevice.getInstance(inst)
     private val telemetryFile: File get() = File(inst.targetContext.filesDir, "agent_steps.jsonl")
 
     private fun shell(cmd: String) {
@@ -67,6 +72,79 @@ class ChatFlowE2eTest {
         fail("accessibility service did not bind after re-enabling")
     }
 
+    // ---------- UI driving through the DONT_SUPPRESS UiAutomation ----------
+
+    private fun root(): AccessibilityNodeInfo? = try { ui.rootInActiveWindow } catch (e: Exception) { null }
+
+    private fun findByText(text: String): AccessibilityNodeInfo? {
+        val r = root() ?: return null
+        return r.findAccessibilityNodeInfosByText(text).firstOrNull { it.text?.toString() == text }
+    }
+
+    private fun findEditText(): AccessibilityNodeInfo? {
+        fun walk(n: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (n == null) return null
+            if (n.className?.toString() == "android.widget.EditText") return n
+            for (i in 0 until n.childCount) {
+                walk(try { n.getChild(i) } catch (e: Exception) { null })?.let { return it }
+            }
+            return null
+        }
+        return walk(root())
+    }
+
+    private fun waitForNode(text: String, ms: Long): AccessibilityNodeInfo? {
+        val end = System.currentTimeMillis() + ms
+        while (System.currentTimeMillis() < end) {
+            findByText(text)?.let { return it }
+            Thread.sleep(400)
+        }
+        return null
+    }
+
+    private fun setFieldText(node: AccessibilityNodeInfo, text: String): Boolean {
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        return try { node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args) } catch (e: Exception) { false }
+    }
+
+    private fun tapNode(node: AccessibilityNodeInfo): Boolean {
+        val service = AgentAccessibilityService.instance ?: return false
+        val b = Rect()
+        node.getBoundsInScreen(b)
+        if (b.isEmpty) return false
+        return runBlocking { service.click(b.centerX().toFloat(), b.centerY().toFloat()) }
+    }
+
+    private fun launchApp() {
+        shell("am start -n $PKG/.MainActivity")
+        val end = System.currentTimeMillis() + 10_000
+        while (System.currentTimeMillis() < end) {
+            if (root()?.packageName?.toString() == PKG) return
+            Thread.sleep(400)
+        }
+    }
+
+    private fun sendChatMessage(text: String) {
+        launchApp()
+        val end = System.currentTimeMillis() + 60_000
+        while (System.currentTimeMillis() < end) {
+            val field = findEditText()
+            if (field != null && setFieldText(field, text)) {
+                val send = waitForNode("Send", 5_000)
+                if (send != null && tapNode(send)) {
+                    // Run started: the button switches to Stop while the agent works.
+                    if (waitForNode("Stop", 10_000) != null) return
+                }
+            }
+            Thread.sleep(1000)
+        }
+        fail("could not start an agent run from the chat UI")
+    }
+
+    // ---------- telemetry (written by the app's own AgentViewModel) ----------
+
     private fun telemetry(): String = try {
         telemetryFile.takeIf { it.exists() }?.readText() ?: ""
     } catch (e: Exception) { "" }
@@ -80,28 +158,6 @@ class ChatFlowE2eTest {
             Thread.sleep(2000)
         }
         return false
-    }
-
-    private fun launchApp() {
-        shell("am start -n $PKG/.MainActivity")
-        device.wait(Until.hasObject(By.pkg(PKG).depth(0)), 5_000)
-    }
-
-    private fun sendChatMessage(text: String) {
-        launchApp()
-        val field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15_000)
-            ?: run { fail("chat input field not found"); return }
-        field.text = text
-        repeat(3) {
-            val send = device.wait(Until.findObject(By.text("Send")), 15_000) ?: return@repeat
-            send.click()
-            // Run started: the button switches to Stop while the agent works.
-            if (device.wait(Until.hasObject(By.text("Stop")), 10_000)) return
-            device.pressBack() // a keyboard may have covered the button; dismiss and retry
-            Thread.sleep(1000)
-        }
-        val visible = device.findObjects(By.pkg(PKG)).mapNotNull { it.text }.distinct().take(12)
-        fail("could not start an agent run from the chat UI; visible texts=$visible")
     }
 
     @Test
