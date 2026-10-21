@@ -1249,9 +1249,16 @@ object LinuxTerminalSimulator {
                     var entry: TarArchiveEntry?
                     var filesExtracted = 0
                     
+                    val distroRootCanonical = distroDir.canonicalFile
                     while (taris.nextEntry.also { entry = it as? TarArchiveEntry } != null) {
                         val currentEntry = entry ?: continue
                         val outputFile = File(distroDir, currentEntry.name)
+                        // Tar-slip guard: entries escaping the distro root (../, absolute
+                        // paths via symlinks) are skipped, never written.
+                        if (!isPathInside(outputFile, distroRootCanonical)) {
+                            android.util.Log.w("Zhypix", "Skipping path-traversal tar entry: ${currentEntry.name}")
+                            continue
+                        }
                         
                         if (currentEntry.isDirectory) {
                             outputFile.mkdirs()
@@ -1284,7 +1291,7 @@ object LinuxTerminalSimulator {
                                 } catch (_: Exception) {}
                             }
                             
-                            if (!linkCreated) {
+                            if (!linkCreated && isPathInside(File(outputFile.parentFile ?: distroDir, linkTarget), distroRootCanonical)) {
                                 try {
                                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                                         android.system.Os.symlink(linkTarget, outputFile.absolutePath)
@@ -3054,8 +3061,12 @@ object LinuxTerminalSimulator {
         return list
     }
 
+    // Serial single-writer: concurrent fire-and-forget saves used to interleave
+    // and could corrupt terminal_sessions.json.
+    private val sessionSaveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+
     fun saveSessions(context: Context) {
-        kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        sessionSaveExecutor.execute {
             try {
                 val file = File(context.filesDir, "terminal_sessions.json")
                 val array = org.json.JSONArray()
@@ -3073,7 +3084,13 @@ object LinuxTerminalSimulator {
                     }
                     array.put(obj)
                 }
-                file.writeText(array.toString())
+                // Atomic replace: a crash mid-write must not corrupt the store.
+                val tmpFile = File(context.filesDir, "terminal_sessions.json.tmp")
+                tmpFile.writeText(array.toString())
+                if (!tmpFile.renameTo(file)) {
+                    file.writeText(array.toString())
+                    tmpFile.delete()
+                }
                 android.util.Log.d("Zhypix", "Successfully saved ${sessions.size} sessions")
             } catch (e: Exception) {
                 android.util.Log.e("Zhypix", "Failed to save sessions", e)
@@ -3142,6 +3159,17 @@ object LinuxTerminalSimulator {
             android.util.Log.d("Zhypix", "Successfully loaded ${sessions.size} sessions")
         } catch (e: Exception) {
             android.util.Log.e("Zhypix", "Failed to load sessions", e)
+        }
+    }
+
+    /** True when [child] resolves to [root] itself or a location inside it (symlink-aware). */
+    internal fun isPathInside(child: File, root: File): Boolean {
+        return try {
+            val rootPath = root.canonicalFile.path
+            val childPath = child.canonicalFile.path
+            childPath == rootPath || childPath.startsWith(rootPath + File.separator)
+        } catch (e: Exception) {
+            false
         }
     }
 
