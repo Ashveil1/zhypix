@@ -53,7 +53,7 @@ jobs:
             adb shell settings put secure accessibility_enabled 1
             adb shell am instrument -w -e e2eKey "$OPENROUTER_E2E_KEY" -e class com.zhypix.fresh.LiveModelE2eTest com.zhypix.fresh.test/androidx.test.runner.AndroidJUnitRunner | tee instrument.txt || true
             adb logcat -d -t 2000 > logcat_tail.txt || true
-            grep -q "FAILURES" instrument.txt && exit 1
+            if grep -q "FAILURES" instrument.txt; then exit 1; fi
             grep -q "OK (1 test)" instrument.txt
         env:
           OPENROUTER_E2E_KEY: ${{ secrets.OPENROUTER_E2E_KEY }}
