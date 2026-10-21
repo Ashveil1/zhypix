@@ -40,6 +40,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import java.util.Locale
 
 class FloatingAgentService : Service() {
@@ -1536,8 +1537,14 @@ class FloatingAgentService : Service() {
         }
 
         scope.launch {
-            AgentViewModel.instance?.messages?.collect { messages ->
-                updateChatHistory(messages)
+            // The overlay rebuilds the whole chat view tree per update; streaming
+            // replies emit many per second. Conflate to ~8/sec and skip while the
+            // island is not expanded - the list is invisible anyway.
+            AgentViewModel.instance?.messages?.collectLatest { messages ->
+                kotlinx.coroutines.delay(120L)
+                if (currentMode == IslandMode.EXPANDED) {
+                    updateChatHistory(messages)
+                }
             }
         }
 
@@ -1773,7 +1780,8 @@ class FloatingAgentService : Service() {
                 controllerParams.width = collapsedSize
                 controllerParams.height = collapsedSize
                 controllerParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                                         WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                                         WindowManager.LayoutParams.FLAG_SECURE
                 try {
                     windowManager.updateViewLayout(controllerView, controllerParams)
                 } catch (_: Exception) {}
@@ -1850,7 +1858,8 @@ class FloatingAgentService : Service() {
                 controllerParams.width = WindowManager.LayoutParams.MATCH_PARENT
                 controllerParams.height = WindowManager.LayoutParams.MATCH_PARENT
                 controllerParams.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                                         WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+                                         WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                                         WindowManager.LayoutParams.FLAG_SECURE
                 controllerParams.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
                 try {
                     windowManager.updateViewLayout(controllerView, controllerParams)
