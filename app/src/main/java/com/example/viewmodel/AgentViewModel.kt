@@ -496,7 +496,7 @@ class AgentViewModel(application: Application) : AndroidViewModel(application) {
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch(Dispatchers.IO) {
             _messages
-                .debounce(300L)
+                .debounce(1000L) // full-session rewrite is expensive; 1s batching cuts churn during streaming
                 .collect { msgs ->
                     val sessionId = currentSessionId
                     if (sessionId != null && msgs.isNotEmpty() && _autoSaveSettings.value) {

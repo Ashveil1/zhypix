@@ -680,7 +680,9 @@ class FloatingAgentService : Service() {
                 glowRing.alpha = 2.2f - scale
             }
         }
-        glowPulseAnimator?.start()
+        // Perf: the pulse runs only while the island is active/expanded. When collapsed the ring is static,
+        // because an always-on-top overlay that redraws every frame forces constant screen composition.
+        glowRing.scaleX = 1.0f; glowRing.scaleY = 1.0f; glowRing.alpha = 0.8f
 
         // 2. Circular Zhypix Logo Floating Button (Resting collapsed mode)
         bubbleBtn = FrameLayout(this).apply {
@@ -1006,7 +1008,7 @@ class FloatingAgentService : Service() {
                 activeVisualizerTv.text = waveFrames[waveIdx]
             }
         }
-        visualizerAnimator?.start()
+        // Perf: started only while the active layout is visible (see morphIsland).
 
         activeLayout.addView(activeIconLayout)
         activeLayout.addView(activeTextCol)
@@ -1735,6 +1737,17 @@ class FloatingAgentService : Service() {
         currentMode = targetMode
 
         islandMorphAnimator?.cancel()
+
+        // Perf: no infinite animations while idle. Only an active/expanded island animates.
+        if (targetMode == IslandMode.COLLAPSED) {
+            glowPulseAnimator?.cancel()
+            visualizerAnimator?.cancel()
+            if (::glowRing.isInitialized) { glowRing.scaleX = 1.0f; glowRing.scaleY = 1.0f; glowRing.alpha = 0.8f }
+        } else {
+            if (glowPulseAnimator?.isStarted != true) glowPulseAnimator?.start()
+            if (targetMode == IslandMode.ACTIVE && visualizerAnimator?.isStarted != true) visualizerAnimator?.start()
+            if (targetMode == IslandMode.EXPANDED) visualizerAnimator?.cancel()
+        }
 
         when (targetMode) {
             IslandMode.COLLAPSED -> {

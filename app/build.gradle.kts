@@ -52,6 +52,13 @@ android {
     debug {
       signingConfig = signingConfigs.getByName("debugConfig")
     }
+    create("beta") {
+      initWith(getByName("debug"))
+      isMinifyEnabled = true
+      isShrinkResources = true
+      isDebuggable = false
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

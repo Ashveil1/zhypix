@@ -24,15 +24,25 @@ class ScreenObservation(private val service: ZhypixAccessibilityService) {
     private val queue = Semaphore(ScreenPolicy.CAPTURE_QUEUE_SLOTS)
     private val shutter = Mutex()
     private var lastCaptureMs=0L
+    @Volatile private var packagesCache: String? = null
+    @Volatile private var packagesCacheAt: Long = 0L
+
+    /** Package list changes rarely; the system call is slow enough to skip per capture. */
+    private suspend fun installedPackages(): String {
+        val cached = packagesCache
+        if (cached != null && SystemClock.elapsedRealtime() - packagesCacheAt < PACKAGES_CACHE_MS) return cached
+        return withContext(Dispatchers.IO) {
+            service.packageManager.getInstalledApplications(0).map{it.packageName}.sorted().joinToString(",")
+        }.also { packagesCache = it; packagesCacheAt = SystemClock.elapsedRealtime() }
+    }
     data class Frame(val base64:String,val width:Int,val height:Int)
+    companion object { private const val PACKAGES_CACHE_MS = 10 * 60_000L }
 
     suspend fun capture(): ScreenLoop.Observation = coroutineScope {
         val state = async(Dispatchers.Main.immediate) { phoneState() }
         val frame = screenshot() ?: throw IllegalStateException("Cannot capture the current screen. Unlock the device and check accessibility permission.")
         val dm=service.resources.displayMetrics
-        val packages=withContext(Dispatchers.IO) {
-            service.packageManager.getInstalledApplications(0).map{it.packageName}.sorted().joinToString(",")
-        }
+        val packages=installedPackages()
         val meta=JSONObject().put("manufacturer",Build.MANUFACTURER).put("model",Build.MODEL)
             .put("installed_packages",packages).put("device",Build.DEVICE).put("brand",Build.BRAND).put("product",Build.PRODUCT).put("hardware",Build.HARDWARE)
             .put("os_version",Build.VERSION.RELEASE).put("sdk_int",Build.VERSION.SDK_INT)
